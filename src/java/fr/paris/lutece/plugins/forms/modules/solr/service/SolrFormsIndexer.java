@@ -222,6 +222,14 @@ public class SolrFormsIndexer implements SolrIndexer
         SolrItem solrItem = new SolrItem( );
 
         int nIdFormResponse = formResponse.getId( );
+        
+        solrItem.setContent( StringUtils.EMPTY );
+        solrItem.setSite( SolrIndexerService.getWebAppName( ) );
+        solrItem.setRole( "formResponse" );
+        solrItem.setType( "FORMRESPONSE" );
+        solrItem.setUid( String.valueOf(formResponse.getId()) );
+        solrItem.setTitle( "formResponse #" + formResponse.getId() );
+        solrItem.setDate( formResponse.getCreation() );
 
         // --- form response identifier
         solrItem.addDynamicField( FormResponseSearchItem.FIELD_ID_FORM_RESPONSE, String.valueOf(nIdFormResponse) );

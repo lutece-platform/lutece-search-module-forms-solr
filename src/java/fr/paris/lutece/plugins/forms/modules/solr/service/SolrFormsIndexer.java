@@ -1,3 +1,36 @@
+/*
+ * Copyright (c) 2002-2021, City of Paris
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ *  1. Redistributions of source code must retain the above copyright notice
+ *     and the following disclaimer.
+ *
+ *  2. Redistributions in binary form must reproduce the above copyright notice
+ *     and the following disclaimer in the documentation and/or other materials
+ *     provided with the distribution.
+ *
+ *  3. Neither the name of 'Mairie de Paris' nor 'Lutece' nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ *
+ * License 1.0
+ */
 package fr.paris.lutece.plugins.forms.modules.solr.service;
 
 import java.io.IOException;
@@ -41,38 +74,43 @@ import fr.paris.lutece.portal.service.util.AppPropertiesService;
 
 public class SolrFormsIndexer implements SolrIndexer
 {
-	private static final String FILTER_DATE_FORMAT = AppPropertiesService.getProperty( "forms-solr.index.date.format", "dd/MM/yyyy" );
-	private static final int TAILLE_LOT = AppPropertiesService.getPropertyInt( "forms-solr.index.writer.commit.size", 100 );
-	
-	private static AtomicBoolean _bIndexToLunch = new AtomicBoolean( false );
-	private static AtomicBoolean _bIndexIsRunning = new AtomicBoolean( false );
-	
-	@Autowired( required = false )
+    private static final String FILTER_DATE_FORMAT = AppPropertiesService.getProperty( "forms-solr.index.date.format", "dd/MM/yyyy" );
+    private static final int TAILLE_LOT = AppPropertiesService.getPropertyInt( "forms-solr.index.writer.commit.size", 100 );
+
+    private static AtomicBoolean _bIndexToLunch = new AtomicBoolean( false );
+    private static AtomicBoolean _bIndexIsRunning = new AtomicBoolean( false );
+
+    @Autowired( required = false )
     private StateService _stateService;
 
-	@Override
-	public List<Field> getAdditionalFields() {
-		return new ArrayList<>();
-	}
+    @Override
+    public List<Field> getAdditionalFields( )
+    {
+        return new ArrayList<>( );
+    }
 
-	@Override
-	public String getDescription() {
-		return Utilities.FORMS_DESCRIPTION;
-	}
+    @Override
+    public String getDescription( )
+    {
+        return Utilities.FORMS_DESCRIPTION;
+    }
 
-	@Override
-	public List<SolrItem> getDocuments(String arg0) {
-		return new ArrayList<>();
-	}
+    @Override
+    public List<SolrItem> getDocuments( String arg0 )
+    {
+        return new ArrayList<>( );
+    }
 
-	@Override
-	public String getName() {
-		return Utilities.FORMS_NAME;
-	}
+    @Override
+    public String getName( )
+    {
+        return Utilities.FORMS_NAME;
+    }
 
-	@Override
-	public String getResourceUid(String strResourceId, String strResourceType) {
-		StringBuilder stringBuilder = new StringBuilder( strResourceId );
+    @Override
+    public String getResourceUid( String strResourceId, String strResourceType )
+    {
+        StringBuilder stringBuilder = new StringBuilder( strResourceId );
         if ( Utilities.RESOURCE_TYPE_FORMS.equals( strResourceType ) )
         {
             stringBuilder.append( '_' ).append( Utilities.SHORT_NAME_FORMS );
@@ -83,26 +121,29 @@ public class SolrFormsIndexer implements SolrIndexer
             return null;
         }
         return stringBuilder.toString( );
-	}
+    }
 
-	@Override
-	public List<String> getResourcesName() {
-		return new ArrayList<>();
-	}
+    @Override
+    public List<String> getResourcesName( )
+    {
+        return new ArrayList<>( );
+    }
 
-	@Override
-	public String getVersion() {
-		return Utilities.FORMS_VERSION;
-	}
+    @Override
+    public String getVersion( )
+    {
+        return Utilities.FORMS_VERSION;
+    }
 
-	@Override
-	public List<String> indexDocuments() {
-		List<String> errors = new ArrayList<>( );
+    @Override
+    public List<String> indexDocuments( )
+    {
+        List<String> errors = new ArrayList<>( );
         try
         {
-        	indexFormsResponse();
+            indexFormsResponse( );
         }
-        catch( IOException|SiteMessageException e )
+        catch( IOException | SiteMessageException e )
         {
             AppLogService.error( "Error indexing FormResponses", e );
             errors.add( e.toString( ) );
@@ -111,16 +152,17 @@ public class SolrFormsIndexer implements SolrIndexer
         {
             AppLogService.error( "Error indexing FormResponses", e );
             errors.add( e.toString( ) );
-            Thread.currentThread().interrupt();
+            Thread.currentThread( ).interrupt( );
         }
         return errors;
-	}
+    }
 
-	@Override
-	public boolean isEnable() {
-		return Boolean.valueOf( AppPropertiesService.getProperty( Utilities.PROPERTY_INDEXER_ENABLE ) );
-	}
-	
+    @Override
+    public boolean isEnable( )
+    {
+        return Boolean.valueOf( AppPropertiesService.getProperty( Utilities.PROPERTY_INDEXER_ENABLE ) );
+    }
+
     public synchronized void indexFormsResponse( ) throws IOException, InterruptedException, SiteMessageException
     {
         List<Integer> listFormResponsesId = FormResponseHome.selectAllFormResponsesId( );
@@ -160,7 +202,7 @@ public class SolrFormsIndexer implements SolrIndexer
             } ).start( );
         }
     }
-    
+
     /**
      * {@inheritDoc}
      */
@@ -195,20 +237,20 @@ public class SolrFormsIndexer implements SolrIndexer
 
             if ( solrItem != null )
             {
-            	solrItemList.add( solrItem );
+                solrItemList.add( solrItem );
             }
         }
         addSolrItems( solrItemList );
     }
-    
+
     private void addSolrItems( List<SolrItem> solrItemList )
     {
         try
         {
-        	for (SolrItem solrItem : solrItemList)
-        	{
-            	SolrIndexerService.write( solrItem );
-        	}
+            for ( SolrItem solrItem : solrItemList )
+            {
+                SolrIndexerService.write( solrItem );
+            }
         }
         catch( IOException e )
         {
@@ -216,33 +258,34 @@ public class SolrFormsIndexer implements SolrIndexer
         }
         solrItemList.clear( );
     }
-    
-    private SolrItem getSolrItem(FormResponse formResponse, Form form, State formResponseState) {
-    	// make a new, empty SolrItem
+
+    private SolrItem getSolrItem( FormResponse formResponse, Form form, State formResponseState )
+    {
+        // make a new, empty SolrItem
         SolrItem solrItem = new SolrItem( );
 
         int nIdFormResponse = formResponse.getId( );
-        
+
         solrItem.setContent( StringUtils.EMPTY );
         solrItem.setSite( SolrIndexerService.getWebAppName( ) );
         solrItem.setRole( Utilities.SHORT_ROLE_FORMS );
         solrItem.setType( Utilities.SHORT_NAME_FORMS );
         solrItem.setUid( String.valueOf( nIdFormResponse ) );
         solrItem.setTitle( Utilities.SHORT_ROLE_FORMS + " #" + nIdFormResponse );
-        solrItem.setDate( formResponse.getCreation() );
+        solrItem.setDate( formResponse.getCreation( ) );
 
         // --- form response identifier
         solrItem.addDynamicField( FormResponseSearchItem.FIELD_ID_FORM_RESPONSE, String.valueOf( nIdFormResponse ) );
 
         // --- field contents
-        solrItem.addDynamicField( SearchItem.FIELD_CONTENTS, manageNullValue( getContentToIndex( formResponse )));
+        solrItem.addDynamicField( SearchItem.FIELD_CONTENTS, manageNullValue( getContentToIndex( formResponse ) ) );
 
         // --- form title
         String strFormTitle = manageNullValue( form.getTitle( ) );
-        solrItem.addDynamicField( FormResponseSearchItem.FIELD_FORM_TITLE, strFormTitle);
+        solrItem.addDynamicField( FormResponseSearchItem.FIELD_FORM_TITLE, strFormTitle );
 
         // --- id form
-        solrItem.addDynamicField( FormResponseSearchItem.FIELD_ID_FORM, String.valueOf(form.getId( )) );
+        solrItem.addDynamicField( FormResponseSearchItem.FIELD_ID_FORM, String.valueOf( form.getId( ) ) );
 
         // --- form response date create
         Long longCreationDate = formResponse.getCreation( ).getTime( );
@@ -256,7 +299,7 @@ public class SolrFormsIndexer implements SolrIndexer
         {
             // --- id form response workflow state
             int nIdFormResponseWorkflowState = formResponseState.getId( );
-            solrItem.addDynamicField( FormResponseSearchItem.FIELD_ID_WORKFLOW_STATE, String.valueOf(nIdFormResponseWorkflowState ));
+            solrItem.addDynamicField( FormResponseSearchItem.FIELD_ID_WORKFLOW_STATE, String.valueOf( nIdFormResponseWorkflowState ) );
 
             // --- form response workflow state title
             String strFormResponseWorkflowStateTitle = manageNullValue( formResponseState.getName( ) );
@@ -297,7 +340,7 @@ public class SolrFormsIndexer implements SolrIndexer
                                 try
                                 {
                                     Long timestamp = Long.valueOf( response.getResponseValue( ) );
-                                    solrItem.addDynamicField(fieldNameBuilder.toString( ) + FormResponseSearchItem.FIELD_DATE_SUFFIX, timestamp );
+                                    solrItem.addDynamicField( fieldNameBuilder.toString( ) + FormResponseSearchItem.FIELD_DATE_SUFFIX, timestamp );
                                 }
                                 catch( Exception e )
                                 {
@@ -309,7 +352,8 @@ public class SolrFormsIndexer implements SolrIndexer
                                 {
                                     try
                                     {
-                                        solrItem.addDynamicField( fieldNameBuilder.toString( ) + FormResponseSearchItem.FIELD_INT_SUFFIX, response.getResponseValue( ) );
+                                        solrItem.addDynamicField( fieldNameBuilder.toString( ) + FormResponseSearchItem.FIELD_INT_SUFFIX,
+                                                response.getResponseValue( ) );
                                     }
                                     catch( NumberFormatException e )
                                     {
@@ -318,7 +362,7 @@ public class SolrFormsIndexer implements SolrIndexer
                                 }
                                 else
                                 {
-                                	solrItem.addDynamicField( fieldNameBuilder.toString( ), response.getResponseValue( ) );
+                                    solrItem.addDynamicField( fieldNameBuilder.toString( ), response.getResponseValue( ) );
                                 }
 
                         }
@@ -336,8 +380,8 @@ public class SolrFormsIndexer implements SolrIndexer
         }
 
         return solrItem;
-	}
-    
+    }
+
     /**
      * Concatenates the value of the specified field in this record
      * 
@@ -379,8 +423,8 @@ public class SolrFormsIndexer implements SolrIndexer
 
         return sb.toString( );
     }
-	
-	/**
+
+    /**
      * Get the field name
      * 
      * @param responseField
@@ -403,8 +447,8 @@ public class SolrFormsIndexer implements SolrIndexer
         }
         return String.valueOf( response.getIdResponse( ) );
     }
-	
-	/**
+
+    /**
      * Manage a given string null value
      * 
      * @param strValue

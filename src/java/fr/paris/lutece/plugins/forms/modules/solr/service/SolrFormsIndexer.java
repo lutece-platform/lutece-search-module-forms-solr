@@ -35,11 +35,11 @@ package fr.paris.lutece.plugins.forms.modules.solr.service;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.StringUtils;
@@ -52,6 +52,7 @@ import fr.paris.lutece.plugins.forms.business.FormResponse;
 import fr.paris.lutece.plugins.forms.business.FormResponseHome;
 import fr.paris.lutece.plugins.forms.business.FormResponseStep;
 import fr.paris.lutece.plugins.forms.business.form.search.FormResponseSearchItem;
+import fr.paris.lutece.plugins.forms.service.FormsPlugin;
 import fr.paris.lutece.plugins.forms.service.entrytype.EntryTypeDate;
 import fr.paris.lutece.plugins.forms.service.entrytype.EntryTypeNumbering;
 import fr.paris.lutece.plugins.forms.util.LuceneUtils;
@@ -60,6 +61,8 @@ import fr.paris.lutece.plugins.genericattributes.business.Response;
 import fr.paris.lutece.plugins.genericattributes.service.entrytype.EntryTypeServiceManager;
 import fr.paris.lutece.plugins.genericattributes.service.entrytype.IEntryTypeService;
 import fr.paris.lutece.plugins.search.solr.business.field.Field;
+import fr.paris.lutece.plugins.search.solr.business.indexeraction.SolrIndexerAction;
+import fr.paris.lutece.plugins.search.solr.business.indexeraction.SolrIndexerActionHome;
 import fr.paris.lutece.plugins.search.solr.indexer.SolrIndexer;
 import fr.paris.lutece.plugins.search.solr.indexer.SolrIndexerService;
 import fr.paris.lutece.plugins.search.solr.indexer.SolrItem;
@@ -77,8 +80,6 @@ public class SolrFormsIndexer implements SolrIndexer
     private static final String FILTER_DATE_FORMAT = AppPropertiesService.getProperty( "forms-solr.index.date.format", "dd/MM/yyyy" );
     private static final int TAILLE_LOT = AppPropertiesService.getPropertyInt( "forms-solr.index.writer.commit.size", 100 );
 
-    private static AtomicBoolean _bIndexToLunch = new AtomicBoolean( false );
-    private static AtomicBoolean _bIndexIsRunning = new AtomicBoolean( false );
 
     @Autowired( required = false )
     private StateService _stateService;
@@ -86,7 +87,7 @@ public class SolrFormsIndexer implements SolrIndexer
     @Override
     public List<Field> getAdditionalFields( )
     {
-        return new ArrayList<>( );
+        return null;
     }
 
     @Override
@@ -98,7 +99,41 @@ public class SolrFormsIndexer implements SolrIndexer
     @Override
     public List<SolrItem> getDocuments( String arg0 )
     {
-        return new ArrayList<>( );
+    	List<SolrIndexerAction> indexerActionList = SolrIndexerActionHome.getList( FormsPlugin.getPlugin( ) );
+    	List<SolrItem> solrItemList = new ArrayList< >( );
+    	Map<Integer, Form> mapForms = FormHome.getFormList( ).stream( ).collect( Collectors.toMap( Form::getId, form -> form ) );
+		
+        for (SolrIndexerAction indexerAction : indexerActionList) 
+        {
+    		int idDocument = Integer.parseInt( indexerAction.getIdDocument( ) );
+    		FormResponse response = FormResponseHome.findByPrimaryKeyForIndex( idDocument );
+    		Form form = mapForms.get( response.getFormId( ) );
+    		State formResponseState = null;
+            if ( _stateService != null )
+            {
+                formResponseState = _stateService.findByResource( response.getId( ), FormResponse.RESOURCE_TYPE, form.getIdWorkflow( ) );
+            }
+            else
+            {
+                formResponseState = new State( );
+                formResponseState.setId( -1 );
+                formResponseState.setName( StringUtils.EMPTY );
+            }
+    		SolrItem solrItem = null;
+    		try
+            {
+                solrItem = getSolrItem( response, form, formResponseState );
+            }
+            catch( Exception e )
+            {
+                IndexationService.error( (SearchIndexer) this, e, null );
+            }
+    		if (solrItem != null)
+    		{
+    			solrItemList.add(solrItem);
+    		}
+        }
+        return solrItemList;
     }
 
     @Override
@@ -117,7 +152,7 @@ public class SolrFormsIndexer implements SolrIndexer
         }
         else
         {
-            AppLogService.error( "SolrAppointmentIndexer, unknown resourceType: " + strResourceType );
+            AppLogService.error( "SolrAppointmentIndexer, unknown resourceType: {}", strResourceType );
             return null;
         }
         return stringBuilder.toString( );
@@ -126,7 +161,9 @@ public class SolrFormsIndexer implements SolrIndexer
     @Override
     public List<String> getResourcesName( )
     {
-        return new ArrayList<>( );
+    	List<String> list = new ArrayList<>( );
+    	list.add( FormResponse.RESOURCE_TYPE );
+        return list;
     }
 
     @Override
@@ -148,59 +185,41 @@ public class SolrFormsIndexer implements SolrIndexer
             AppLogService.error( "Error indexing FormResponses", e );
             errors.add( e.toString( ) );
         }
-        catch( InterruptedException e )
-        {
-            AppLogService.error( "Error indexing FormResponses", e );
-            errors.add( e.toString( ) );
-            Thread.currentThread( ).interrupt( );
-        }
         return errors;
     }
 
     @Override
     public boolean isEnable( )
     {
-        return Boolean.valueOf( AppPropertiesService.getProperty( Utilities.PROPERTY_INDEXER_ENABLE ) );
+        return "true".equalsIgnoreCase( AppPropertiesService.getProperty( Utilities.PROPERTY_INDEXER_ENABLE ) );
     }
 
-    public synchronized void indexFormsResponse( ) throws IOException, InterruptedException, SiteMessageException
+    public void indexFormsResponse( ) throws IOException, SiteMessageException
     {
         List<Integer> listFormResponsesId = FormResponseHome.selectAllFormResponsesId( );
 
-        _bIndexToLunch.set( true );
-        if ( _bIndexIsRunning.compareAndSet( false, true ) )
-        {
-            new Thread( ( ) -> {
-                try
+        try
+            {
+                List<FormResponse> listFormResponses = new ArrayList<>( TAILLE_LOT );
+                for ( Integer nIdFormResponse : listFormResponsesId )
                 {
-                    List<FormResponse> listFormResponses = new ArrayList<>( TAILLE_LOT );
-                    for ( Integer nIdFormResponse : listFormResponsesId )
+                    FormResponse response = FormResponseHome.findByPrimaryKeyForIndex( nIdFormResponse );
+                    if ( response != null )
                     {
-                        FormResponse response = FormResponseHome.findByPrimaryKeyForIndex( nIdFormResponse );
-                        if ( response != null )
-                        {
-                            listFormResponses.add( response );
-                        }
-                        if ( listFormResponses.size( ) == TAILLE_LOT )
-                        {
-                            indexFormResponseList( listFormResponses );
-                            listFormResponses.clear( );
-                        }
+                        listFormResponses.add( response );
                     }
-                    indexFormResponseList( listFormResponses );
+                    if ( listFormResponses.size( ) == TAILLE_LOT )
+                    {
+                        indexFormResponseList( listFormResponses );
+                        listFormResponses.clear( );
+                    }
                 }
-                catch( Exception e )
-                {
-                    AppLogService.error( e.getMessage( ), e );
-                    Thread.currentThread( ).interrupt( );
-                }
-                finally
-                {
-                    _bIndexIsRunning.set( false );
-                }
-
-            } ).start( );
-        }
+                indexFormResponseList( listFormResponses );
+            }
+            catch( Exception e )
+            {
+                AppLogService.error( e.getMessage( ), e );
+            }
     }
 
     /**
@@ -209,7 +228,7 @@ public class SolrFormsIndexer implements SolrIndexer
     private void indexFormResponseList( List<FormResponse> listFormResponse )
     {
         Map<Integer, Form> mapForms = FormHome.getFormList( ).stream( ).collect( Collectors.toMap( Form::getId, form -> form ) );
-        List<SolrItem> solrItemList = new ArrayList<>( );
+        Collection<SolrItem> solrItemList = new ArrayList<>( );
         for ( FormResponse formResponse : listFormResponse )
         {
             SolrItem solrItem = null;
@@ -243,14 +262,11 @@ public class SolrFormsIndexer implements SolrIndexer
         addSolrItems( solrItemList );
     }
 
-    private void addSolrItems( List<SolrItem> solrItemList )
+    private void addSolrItems( Collection<SolrItem> solrItemList )
     {
         try
         {
-            for ( SolrItem solrItem : solrItemList )
-            {
-                SolrIndexerService.write( solrItem );
-            }
+        	SolrIndexerService.write( solrItemList );
         }
         catch( IOException e )
         {
@@ -261,50 +277,7 @@ public class SolrFormsIndexer implements SolrIndexer
 
     private SolrItem getSolrItem( FormResponse formResponse, Form form, State formResponseState )
     {
-        // make a new, empty SolrItem
-        SolrItem solrItem = new SolrItem( );
-
-        int nIdFormResponse = formResponse.getId( );
-
-        solrItem.setContent( StringUtils.EMPTY );
-        solrItem.setSite( SolrIndexerService.getWebAppName( ) );
-        solrItem.setRole( Utilities.SHORT_ROLE_FORMS );
-        solrItem.setType( Utilities.SHORT_NAME_FORMS );
-        solrItem.setUid( String.valueOf( nIdFormResponse ) );
-        solrItem.setTitle( Utilities.SHORT_ROLE_FORMS + " #" + nIdFormResponse );
-        solrItem.setDate( formResponse.getCreation( ) );
-
-        // --- form response identifier
-        solrItem.addDynamicField( FormResponseSearchItem.FIELD_ID_FORM_RESPONSE, String.valueOf( nIdFormResponse ) );
-
-        // --- field contents
-        solrItem.addDynamicField( SearchItem.FIELD_CONTENTS, manageNullValue( getContentToIndex( formResponse ) ) );
-
-        // --- form title
-        String strFormTitle = manageNullValue( form.getTitle( ) );
-        solrItem.addDynamicField( FormResponseSearchItem.FIELD_FORM_TITLE, strFormTitle );
-
-        // --- id form
-        solrItem.addDynamicField( FormResponseSearchItem.FIELD_ID_FORM, String.valueOf( form.getId( ) ) );
-
-        // --- form response date create
-        Long longCreationDate = formResponse.getCreation( ).getTime( );
-        solrItem.addDynamicField( FormResponseSearchItem.FIELD_DATE_CREATION, longCreationDate );
-
-        // --- form response date closure
-        Long longUpdateDate = formResponse.getUpdate( ).getTime( );
-        solrItem.addDynamicField( FormResponseSearchItem.FIELD_DATE_UPDATE, longUpdateDate );
-
-        if ( formResponseState != null )
-        {
-            // --- id form response workflow state
-            int nIdFormResponseWorkflowState = formResponseState.getId( );
-            solrItem.addDynamicField( FormResponseSearchItem.FIELD_ID_WORKFLOW_STATE, String.valueOf( nIdFormResponseWorkflowState ) );
-
-            // --- form response workflow state title
-            String strFormResponseWorkflowStateTitle = manageNullValue( formResponseState.getName( ) );
-            solrItem.addDynamicField( FormResponseSearchItem.FIELD_TITLE_WORKFLOW_STATE, strFormResponseWorkflowStateTitle );
-        }
+        SolrItem solrItem = initSolrItem(formResponse, form, formResponseState);
 
         // --- form response entry code / fields
         Set<String> setFieldNameBuilderUsed = new HashSet<>( );
@@ -344,7 +317,7 @@ public class SolrFormsIndexer implements SolrIndexer
                                 }
                                 catch( Exception e )
                                 {
-                                    AppLogService.error( "Unable to parse " + response.getResponseValue( ) + " with date formatter " + FILTER_DATE_FORMAT, e );
+                                    AppLogService.error( "Unable to parse {} with date formatter {}", response.getResponseValue( ), FILTER_DATE_FORMAT, e );
                                 }
                             }
                             else
@@ -357,7 +330,7 @@ public class SolrFormsIndexer implements SolrIndexer
                                     }
                                     catch( NumberFormatException e )
                                     {
-                                        AppLogService.error( "Unable to parse " + response.getResponseValue( ) + " to integer ", e );
+                                        AppLogService.error( "Unable to parse {} to integer ", response.getResponseValue( ), e );
                                     }
                                 }
                                 else
@@ -368,9 +341,8 @@ public class SolrFormsIndexer implements SolrIndexer
                         }
                         else
                         {
-                            AppLogService.error( " FieldNameBuilder " + fieldNameBuilder.toString( ) + "  already used for formResponse.getId( )  "
-                                    + formResponse.getId( ) + "  formQuestionResponse.getId( )  " + formQuestionResponse.getId( )
-                                    + " response.getIdResponse( ) " + response.getIdResponse( ) + " formResponseStep" + formResponseStep.getId( ) );
+                            AppLogService.error( " FieldNameBuilder {}  already used for formResponse.getId( )  {}  formQuestionResponse.getId( )  {} response.getIdResponse( ) {} formResponseStep {}",
+                            		fieldNameBuilder.toString( ), formResponse.getId( ), formQuestionResponse.getId( ), response.getIdResponse( ), formResponseStep.getId( ) );
 
                         }
 
@@ -379,6 +351,56 @@ public class SolrFormsIndexer implements SolrIndexer
             }
         }
 
+        return solrItem;
+    }
+    
+    private SolrItem initSolrItem( FormResponse formResponse, Form form, State formResponseState )
+    {
+    	// make a new, empty SolrItem
+        SolrItem solrItem = new SolrItem( );
+
+        int nIdFormResponse = formResponse.getId( );
+
+        solrItem.setContent( StringUtils.EMPTY );
+        solrItem.setSite( SolrIndexerService.getWebAppName( ) );
+        solrItem.setRole( Utilities.SHORT_ROLE_FORMS );
+        solrItem.setType( Utilities.SHORT_NAME_FORMS );
+        solrItem.setUid( String.valueOf( nIdFormResponse ) + '_' + Utilities.SHORT_ROLE_FORMS );
+        solrItem.setTitle( Utilities.SHORT_ROLE_FORMS + " #" + nIdFormResponse );
+        solrItem.setDate( formResponse.getCreation( ) );
+
+        // --- form response identifier
+        solrItem.addDynamicField( FormResponseSearchItem.FIELD_ID_FORM_RESPONSE, String.valueOf( nIdFormResponse ) );
+        
+        // --- field contents
+        solrItem.addDynamicField( SearchItem.FIELD_CONTENTS, manageNullValue( getContentToIndex( formResponse ) ) );
+
+        // --- form title
+        String strFormTitle = manageNullValue( form.getTitle( ) );
+        solrItem.addDynamicField( FormResponseSearchItem.FIELD_FORM_TITLE, strFormTitle );
+
+        // --- id form
+        solrItem.addDynamicField( FormResponseSearchItem.FIELD_ID_FORM, String.valueOf( form.getId( ) ) );
+
+        // --- form response date create
+        Long longCreationDate = formResponse.getCreation( ).getTime( );
+        solrItem.addDynamicField( FormResponseSearchItem.FIELD_DATE_CREATION, longCreationDate );
+
+        // --- form response date closure
+        Long longUpdateDate = formResponse.getUpdate( ).getTime( );
+        solrItem.addDynamicField( FormResponseSearchItem.FIELD_DATE_UPDATE, longUpdateDate );
+        
+        if ( formResponseState != null )
+        {
+            // --- id form response workflow state
+            int nIdFormResponseWorkflowState = formResponseState.getId( );
+            solrItem.addDynamicField( FormResponseSearchItem.FIELD_ID_WORKFLOW_STATE, String.valueOf( nIdFormResponseWorkflowState ) );
+
+            // --- form response workflow state title
+            String strFormResponseWorkflowStateTitle = manageNullValue( formResponseState.getName( ) );
+            solrItem.addDynamicField( FormResponseSearchItem.FIELD_TITLE_WORKFLOW_STATE, strFormResponseWorkflowStateTitle );
+        }
+        
         return solrItem;
     }
 

@@ -55,7 +55,6 @@ import fr.paris.lutece.plugins.forms.business.form.search.FormResponseSearchItem
 import fr.paris.lutece.plugins.forms.service.FormsPlugin;
 import fr.paris.lutece.plugins.forms.service.entrytype.EntryTypeDate;
 import fr.paris.lutece.plugins.forms.service.entrytype.EntryTypeNumbering;
-import fr.paris.lutece.plugins.forms.util.LuceneUtils;
 import fr.paris.lutece.plugins.genericattributes.business.Entry;
 import fr.paris.lutece.plugins.genericattributes.business.Response;
 import fr.paris.lutece.plugins.genericattributes.service.entrytype.EntryTypeServiceManager;
@@ -278,79 +277,17 @@ public class SolrFormsIndexer implements SolrIndexer
     private SolrItem getSolrItem( FormResponse formResponse, Form form, State formResponseState )
     {
         SolrItem solrItem = initSolrItem(formResponse, form, formResponseState);
-
         // --- form response entry code / fields
-        Set<String> setFieldNameBuilderUsed = new HashSet<>( );
         for ( FormResponseStep formResponseStep : formResponse.getSteps( ) )
         {
             for ( FormQuestionResponse formQuestionResponse : formResponseStep.getQuestions( ) )
             {
-                String strQuestionCode = formQuestionResponse.getQuestion( ).getCode( );
-                Entry entry = formQuestionResponse.getQuestion( ).getEntry( );
-                IEntryTypeService entryTypeService = EntryTypeServiceManager.getEntryTypeService( entry );
-
                 for ( Response response : formQuestionResponse.getEntryResponse( ) )
                 {
-                    fr.paris.lutece.plugins.genericattributes.business.Field responseField = response.getField( );
-
-                    if ( !StringUtils.isEmpty( response.getResponseValue( ) ) )
-                    {
-                        StringBuilder fieldNameBuilder = new StringBuilder(
-                                LuceneUtils.createLuceneEntryKey( strQuestionCode, response.getIterationNumber( ) ) );
-
-                        if ( responseField != null )
-                        {
-                            String getFieldName = getFieldName( responseField, response );
-                            fieldNameBuilder.append( FormResponseSearchItem.FIELD_RESPONSE_FIELD_SEPARATOR );
-                            fieldNameBuilder.append( getFieldName );
-                        }
-
-                        if ( !setFieldNameBuilderUsed.contains( fieldNameBuilder.toString( ) ) )
-                        {
-                            setFieldNameBuilderUsed.add( fieldNameBuilder.toString( ) );
-                            if ( entryTypeService instanceof EntryTypeDate )
-                            {
-                                try
-                                {
-                                    Long timestamp = Long.valueOf( response.getResponseValue( ) );
-                                    solrItem.addDynamicField( fieldNameBuilder.toString( ) + FormResponseSearchItem.FIELD_DATE_SUFFIX, timestamp );
-                                }
-                                catch( Exception e )
-                                {
-                                    AppLogService.error( "Unable to parse {} with date formatter {}", response.getResponseValue( ), FILTER_DATE_FORMAT, e );
-                                }
-                            }
-                            else
-                                if ( entryTypeService instanceof EntryTypeNumbering )
-                                {
-                                    try
-                                    {
-                                        solrItem.addDynamicField( fieldNameBuilder.toString( ) + FormResponseSearchItem.FIELD_INT_SUFFIX,
-                                                response.getResponseValue( ) );
-                                    }
-                                    catch( NumberFormatException e )
-                                    {
-                                        AppLogService.error( "Unable to parse {} to integer ", response.getResponseValue( ), e );
-                                    }
-                                }
-                                else
-                                {
-                                    solrItem.addDynamicField( fieldNameBuilder.toString( ), response.getResponseValue( ) );
-                                }
-
-                        }
-                        else
-                        {
-                            AppLogService.error( " FieldNameBuilder {}  already used for formResponse.getId( )  {}  formQuestionResponse.getId( )  {} response.getIdResponse( ) {} formResponseStep {}",
-                            		fieldNameBuilder.toString( ), formResponse.getId( ), formQuestionResponse.getId( ), response.getIdResponse( ), formResponseStep.getId( ) );
-
-                        }
-
-                    }
+                    indexResponse(solrItem, formQuestionResponse, response, formResponse.getId( ), formResponseStep.getId( ));
                 }
             }
         }
-
         return solrItem;
     }
     
@@ -402,6 +339,62 @@ public class SolrFormsIndexer implements SolrIndexer
         }
         
         return solrItem;
+    }
+    
+    private void indexResponse(SolrItem solrItem, FormQuestionResponse formQuestionResponse, Response response, int formResponseId, int formResponseStepId)
+    {
+    	Set<String> setFieldNameBuilderUsed = new HashSet<>( );
+    	String strQuestionCode = formQuestionResponse.getQuestion( ).getCode( );
+    	if ( !StringUtils.isEmpty( response.getResponseValue( ) ) )
+        {
+            StringBuilder fieldNameBuilder = new StringBuilder(
+            		createSolrEntryKey( strQuestionCode, response.getIterationNumber( ), response ) );
+            if ( !setFieldNameBuilderUsed.contains( fieldNameBuilder.toString( ) ) )
+            {
+                setFieldNameBuilderUsed.add( fieldNameBuilder.toString( ) );
+                indexResponseValue(solrItem, formQuestionResponse, response, fieldNameBuilder);
+            }
+            else
+            {
+                AppLogService.error( " FieldNameBuilder {}  already used for formResponse.getId( )  {}  formQuestionResponse.getId( )  {} response.getIdResponse( ) {} formResponseStep {}",
+                		fieldNameBuilder.toString( ), formResponseId, formQuestionResponse.getId( ), response.getIdResponse( ), formResponseStepId );
+            }
+        }
+    }
+    
+    private void indexResponseValue(SolrItem solrItem, FormQuestionResponse formQuestionResponse, Response response, StringBuilder fieldNameBuilder)
+    {
+        Entry entry = formQuestionResponse.getQuestion( ).getEntry( );
+    	IEntryTypeService entryTypeService = EntryTypeServiceManager.getEntryTypeService( entry );
+    	if ( entryTypeService instanceof EntryTypeDate )
+        {
+            try
+            {
+                Long timestamp = Long.valueOf( response.getResponseValue( ) );
+                solrItem.addDynamicField( fieldNameBuilder.toString( ) + FormResponseSearchItem.FIELD_DATE_SUFFIX, timestamp );
+            }
+            catch( Exception e )
+            {
+                AppLogService.error( "Unable to parse {} with date formatter {}", response.getResponseValue( ), FILTER_DATE_FORMAT, e );
+            }
+        }
+        else
+            if ( entryTypeService instanceof EntryTypeNumbering )
+            {
+                try
+                {
+                    solrItem.addDynamicField( fieldNameBuilder.toString( ) + FormResponseSearchItem.FIELD_INT_SUFFIX,
+                            response.getResponseValue( ) );
+                }
+                catch( NumberFormatException e )
+                {
+                    AppLogService.error( "Unable to parse {} to integer ", response.getResponseValue( ), e );
+                }
+            }
+            else
+            {
+                solrItem.addDynamicField( fieldNameBuilder.toString( ), response.getResponseValue( ) );
+            }
     }
 
     /**
@@ -483,5 +476,36 @@ public class SolrFormsIndexer implements SolrIndexer
             return StringUtils.EMPTY;
         }
         return strValue;
+    }
+    
+    /**
+     * Creates the lucene index key.
+     * 
+     * @param strQuestionCode
+     * @param nIterationNumber
+     * @return key
+     */
+    private String createSolrEntryKey( String strQuestionCode, int nIterationNumber, Response response )
+    {
+        StringBuilder fieldNameBuilder = new StringBuilder( FormResponseSearchItem.FIELD_ENTRY_CODE_SUFFIX );
+        fieldNameBuilder.append( strQuestionCode );
+        fieldNameBuilder.append( FormResponseSearchItem.FIELD_RESPONSE_FIELD_ITER );
+
+        fr.paris.lutece.plugins.genericattributes.business.Field responseField = response.getField( );
+
+        if ( nIterationNumber == -1 )
+        {
+            nIterationNumber = 0;
+        }
+        fieldNameBuilder.append( nIterationNumber );
+        
+        if ( responseField != null )
+        {
+            String getFieldName = getFieldName( responseField, response );
+            fieldNameBuilder.append( FormResponseSearchItem.FIELD_RESPONSE_FIELD_SEPARATOR );
+            fieldNameBuilder.append( getFieldName );
+        }
+        
+        return fieldNameBuilder.toString( );
     }
 }

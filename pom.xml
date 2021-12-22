@@ -61,6 +61,12 @@
             <version>[5.3.0,)</version>
             <type>lutece-plugin</type>
         </dependency>
+        <dependency>
+            <groupId>fr.paris.lutece.plugins</groupId>
+            <artifactId>module-address-autocomplete</artifactId>
+            <version>[1.1.0,)</version>
+            <type>lutece-plugin</type>
+        </dependency>
     </dependencies>
 
     <properties>

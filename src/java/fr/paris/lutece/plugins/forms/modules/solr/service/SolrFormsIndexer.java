@@ -35,7 +35,9 @@ package fr.paris.lutece.plugins.forms.modules.solr.service;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -54,11 +56,13 @@ import fr.paris.lutece.plugins.forms.business.FormResponseStep;
 import fr.paris.lutece.plugins.forms.business.form.search.FormResponseSearchItem;
 import fr.paris.lutece.plugins.forms.service.FormsPlugin;
 import fr.paris.lutece.plugins.forms.service.entrytype.EntryTypeDate;
+import fr.paris.lutece.plugins.forms.service.entrytype.EntryTypeGeolocation;
 import fr.paris.lutece.plugins.forms.service.entrytype.EntryTypeNumbering;
 import fr.paris.lutece.plugins.genericattributes.business.Entry;
 import fr.paris.lutece.plugins.genericattributes.business.Response;
 import fr.paris.lutece.plugins.genericattributes.service.entrytype.EntryTypeServiceManager;
 import fr.paris.lutece.plugins.genericattributes.service.entrytype.IEntryTypeService;
+import fr.paris.lutece.plugins.leaflet.business.GeolocItem;
 import fr.paris.lutece.plugins.search.solr.business.field.Field;
 import fr.paris.lutece.plugins.search.solr.business.indexeraction.SolrIndexerAction;
 import fr.paris.lutece.plugins.search.solr.business.indexeraction.SolrIndexerActionHome;
@@ -66,6 +70,7 @@ import fr.paris.lutece.plugins.search.solr.indexer.SolrIndexer;
 import fr.paris.lutece.plugins.search.solr.indexer.SolrIndexerService;
 import fr.paris.lutece.plugins.search.solr.indexer.SolrItem;
 import fr.paris.lutece.plugins.workflowcore.business.state.State;
+import fr.paris.lutece.plugins.workflowcore.service.state.IStateService;
 import fr.paris.lutece.plugins.workflowcore.service.state.StateService;
 import fr.paris.lutece.portal.service.message.SiteMessageException;
 import fr.paris.lutece.portal.service.search.IndexationService;
@@ -81,7 +86,7 @@ public class SolrFormsIndexer implements SolrIndexer
 
 
     @Autowired( required = false )
-    private StateService _stateService;
+    private IStateService _stateService;
 
     @Override
     public List<Field> getAdditionalFields( )
@@ -298,19 +303,20 @@ public class SolrFormsIndexer implements SolrIndexer
 
         int nIdFormResponse = formResponse.getId( );
 
-        solrItem.setContent( StringUtils.EMPTY );
         solrItem.setSite( SolrIndexerService.getWebAppName( ) );
         solrItem.setRole( Utilities.SHORT_ROLE_FORMS );
         solrItem.setType( Utilities.SHORT_NAME_FORMS );
         solrItem.setUid( String.valueOf( nIdFormResponse ) + '_' + Utilities.SHORT_ROLE_FORMS );
         solrItem.setTitle( Utilities.SHORT_ROLE_FORMS + " #" + nIdFormResponse );
         solrItem.setDate( formResponse.getCreation( ) );
+        solrItem.setUrl("#");
 
         // --- form response identifier
         solrItem.addDynamicField( FormResponseSearchItem.FIELD_ID_FORM_RESPONSE, String.valueOf( nIdFormResponse ) );
         
         // --- field contents
         solrItem.addDynamicField( SearchItem.FIELD_CONTENTS, manageNullValue( getContentToIndex( formResponse ) ) );
+        solrItem.setContent(manageNullValue( getContentToIndex( formResponse ) ));
 
         // --- form title
         String strFormTitle = manageNullValue( form.getTitle( ) );
@@ -392,9 +398,19 @@ public class SolrFormsIndexer implements SolrIndexer
                 }
             }
             else
-            {
-                solrItem.addDynamicField( fieldNameBuilder.toString( ), response.getResponseValue( ) );
-            }
+            	if (entryTypeService instanceof EntryTypeGeolocation)
+            	{
+            		GeolocItem geolocItem = new GeolocItem(  );
+            		//todo
+            		HashMap<String, Object> gref = new HashMap<>(  );
+            		gref.put( "coordinates", Arrays.asList( new Double[] { 2.31272, 48.83632 } ) );
+            		geolocItem.setGeometry( gref );
+            		solrItem.addDynamicFieldGeoloc("", geolocItem, "");
+            	}
+            	else
+	            {
+            		solrItem.addDynamicField( fieldNameBuilder.toString( ), response.getResponseValue( ) );
+	            }
     }
 
     /**

@@ -35,7 +35,6 @@ package fr.paris.lutece.plugins.forms.modules.solr.service;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -43,6 +42,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+
+import javax.inject.Inject;
 
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -69,6 +70,8 @@ import fr.paris.lutece.plugins.search.solr.indexer.SolrIndexer;
 import fr.paris.lutece.plugins.search.solr.indexer.SolrIndexerService;
 import fr.paris.lutece.plugins.search.solr.indexer.SolrItem;
 import fr.paris.lutece.plugins.workflowcore.business.state.State;
+import fr.paris.lutece.plugins.workflowcore.business.state.StateFilter;
+import fr.paris.lutece.plugins.workflowcore.service.resource.IResourceWorkflowService;
 import fr.paris.lutece.plugins.workflowcore.service.state.IStateService;
 import fr.paris.lutece.portal.service.search.IndexationService;
 import fr.paris.lutece.portal.service.search.SearchIndexer;
@@ -78,7 +81,9 @@ import fr.paris.lutece.portal.service.util.AppPropertiesService;
 public class SolrFormsIndexer implements SolrIndexer
 {
     private static final int TAILLE_LOT = AppPropertiesService.getPropertyInt( "forms-solr.index.writer.commit.size", 100 );
-
+    
+    @Inject
+    private IResourceWorkflowService _resourceWorkflowService;
 
     @Autowired( required = false )
     private IStateService _stateService;
@@ -99,12 +104,10 @@ public class SolrFormsIndexer implements SolrIndexer
     public List<SolrItem> getDocuments( String idFormResponse )
     {
     	List<SolrItem> solrItemList = new ArrayList< >( );
-    	Map<Integer, Form> mapForms = FormHome.getFormList( ).stream( ).collect( Collectors.toMap( Form::getId, form -> form ) );
 		
     	int idDocument = Integer.parseInt( idFormResponse );
 		FormResponse response = FormResponseHome.findByPrimaryKeyForIndex( idDocument );
-		List<FormQuestionResponse> formQuestionResponseList = FormQuestionResponseHome.getFormQuestionResponseListByFormResponse(idDocument);
-		Form form = mapForms.get( response.getFormId( ) );
+		Form form = FormHome.findByPrimaryKey(response.getFormId( ));
 		State formResponseState = null;
         if ( _stateService != null )
         {
@@ -119,7 +122,7 @@ public class SolrFormsIndexer implements SolrIndexer
 		SolrItem solrItem = null;
 		try
         {
-            solrItem = getSolrItem( response, form, formResponseState, formQuestionResponseList );
+            solrItem = getSolrItem( response, form, formResponseState );
         }
         catch( Exception e )
         {
@@ -173,25 +176,23 @@ public class SolrFormsIndexer implements SolrIndexer
     {
         List<String> errors = new ArrayList<>();
         List<Integer> listFormResponsesId = FormResponseHome.selectAllFormResponsesId( );
-
+        
         try
             {
-                List<FormResponse> formResponsesListLot = new ArrayList<>( TAILLE_LOT );
-                List<FormResponse> formResponseList = FormResponseHome.getFormResponseUncompleteByPrimaryKeyList(listFormResponsesId);
-                List<FormQuestionResponse> listFormQuestionResponse = FormQuestionResponseHome.getFormQuestionResponseListByFormResponseList( listFormResponsesId );
-                for (FormResponse response : formResponseList)
-            	{
-            		if ( response != null )
+        		List<Integer> listFormResponsesIdLot = new ArrayList<>( TAILLE_LOT );
+                Map<Integer, State> mapState = _stateService.getListStateByFilter( new StateFilter( ) ).stream( )
+                        .collect( Collectors.toMap( State::getId, state -> state ) );
+	        	for (int i : listFormResponsesId)
+	            {
+	        		listFormResponsesIdLot.add(i);
+	        		if ( listFormResponsesIdLot.size( ) == TAILLE_LOT )
                     {
-                    	formResponsesListLot.add( response );
+	        			indexFormResponseLot(listFormResponsesIdLot, mapState);
+	        			listFormResponsesIdLot.clear();
                     }
-                    if ( formResponsesListLot.size( ) == TAILLE_LOT )
-                    {
-                        indexFormResponseList( formResponsesListLot, listFormQuestionResponse );
-                        formResponsesListLot.clear( );
-                    }
-            	}
-                indexFormResponseList( formResponsesListLot, listFormQuestionResponse );
+	            }
+	        	indexFormResponseLot(listFormResponsesIdLot, mapState);
+	        	
             }
             catch( Exception e )
             {
@@ -200,42 +201,46 @@ public class SolrFormsIndexer implements SolrIndexer
             }
         return errors;
     }
-
-    @Override
-    public boolean isEnable( )
+    
+    private void indexFormResponseLot( List<Integer> listFormResponsesIdLot, Map<Integer, State> mapState )
     {
-        return "true".equalsIgnoreCase( AppPropertiesService.getProperty( Utilities.PROPERTY_INDEXER_ENABLE ) );
+    	List<FormResponse> formResponseList = FormResponseHome.getFormResponseUncompleteByPrimaryKeyList(listFormResponsesIdLot);
+    	State formResponseState = new State( );
+        formResponseState.setId( -1 );
+        formResponseState.setName( StringUtils.EMPTY );
+        Map <Integer, Integer> mapIdState = new HashMap<>();
+        for (Form form : FormHome.getFormList())
+        {
+            mapIdState.putAll( _resourceWorkflowService.getListIdStateByListId( listFormResponsesIdLot, form.getIdWorkflow( ),
+                    FormResponse.RESOURCE_TYPE, form.getId()) );
+        }
+		indexFormResponseList( formResponseList, formResponseState, mapState, mapIdState );
     }
 
     /**
      * {@inheritDoc}
      * @param listFormResponse 
      * @param listFormQuestionResponse 
+     * @param formResponseState
+     * @param mapState 
+     * @param mapIdState 
      */
-    private void indexFormResponseList( List<FormResponse> listFormResponse, List<FormQuestionResponse> listFormQuestionResponse )
+    private void indexFormResponseList( List<FormResponse> listFormResponse, State formResponseState, Map<Integer, State> mapState, Map<Integer, Integer> mapIdState )
     {
-        Map<Integer, Form> mapForms = FormHome.getFormList( ).stream( ).collect( Collectors.toMap( Form::getId, form -> form ) );
         Collection<SolrItem> solrItemList = new ArrayList<>( );
         for ( FormResponse formResponse : listFormResponse )
         {
             SolrItem solrItem = null;
-            Form form = mapForms.get( formResponse.getFormId( ) );
-            State formResponseState = null;
+            Form form = FormHome.findByPrimaryKey(formResponse.getFormId( ));
             
             if ( _stateService != null )
             {
-                formResponseState = _stateService.findByResource( formResponse.getId( ), FormResponse.RESOURCE_TYPE, form.getIdWorkflow( ) );
-            }
-            else
-            {
-                formResponseState = new State( );
-                formResponseState.setId( -1 );
-                formResponseState.setName( StringUtils.EMPTY );
+                formResponseState = mapState.get(mapIdState.get(formResponse.getId()));
             }
 
             try
             {
-                solrItem = getSolrItem( formResponse, form, formResponseState, listFormQuestionResponse );
+                solrItem = getSolrItem( formResponse, form, formResponseState );
             }
             catch( Exception e )
             {
@@ -263,9 +268,9 @@ public class SolrFormsIndexer implements SolrIndexer
         solrItemList.clear( );
     }
 
-    private SolrItem getSolrItem( FormResponse formResponse, Form form, State formResponseState, List<FormQuestionResponse> listFormQuestionResponseGlobal )
+    private SolrItem getSolrItem( FormResponse formResponse, Form form, State formResponseState )
     {
-    	List<FormQuestionResponse> formQuestionResponseList = listFormQuestionResponseGlobal.stream().filter(x -> x.getIdFormResponse( ) == formResponse.getId( )).collect( Collectors.toList( ) );
+    	List<FormQuestionResponse> formQuestionResponseList = FormQuestionResponseHome.getFormQuestionResponseListByFormResponse(formResponse.getId()).stream().filter(x -> x.getIdFormResponse( ) == formResponse.getId( )).collect( Collectors.toList( ) );
         SolrItem solrItem = initSolrItem(formResponse, form, formResponseState, formQuestionResponseList);
         // --- form response entry code / fields
         for ( FormQuestionResponse formQuestionResponse : formQuestionResponseList )
@@ -384,7 +389,7 @@ public class SolrFormsIndexer implements SolrIndexer
             		GeolocItem geolocItem = new GeolocItem(  );
             		//todo
             		HashMap<String, Object> gref = new HashMap<>(  );
-            		gref.put( "coordinates", Arrays.asList( new Double[] { 2.31272, 48.83632 } ) );
+            		//gref.put( "coordinates", Arrays.asList( new Double[] { 2.31272, 48.83632 } ) );
             		geolocItem.setGeometry( gref );
             		solrItem.addDynamicFieldGeoloc("", geolocItem, "");
             	}
@@ -505,5 +510,11 @@ public class SolrFormsIndexer implements SolrIndexer
         }
         
         return fieldNameBuilder.toString( );
+    }
+    
+    @Override
+    public boolean isEnable( )
+    {
+        return "true".equalsIgnoreCase( AppPropertiesService.getProperty( Utilities.PROPERTY_INDEXER_ENABLE ) );
     }
 }

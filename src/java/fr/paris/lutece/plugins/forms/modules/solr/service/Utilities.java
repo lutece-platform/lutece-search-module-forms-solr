@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002-2021, City of Paris
+ * Copyright (c) 2002-2022, City of Paris
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -45,7 +45,6 @@ public class Utilities
     public static final String SHORT_NAME_FORMS = "formsResponse";
     public static final String SHORT_ROLE_FORMS = "formResponse";
     public static final String DOC_INDEXATION_ERROR = "[SolrFormsResponseIndexer] An error occured during the indexation of the formResponse id: {}";
-
 
     /**
      * Private constructor - this class does not need to be instantiated

@@ -35,15 +35,16 @@ package fr.paris.lutece.plugins.forms.modules.solr.service;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
-
-import javax.inject.Inject;
+import java.util.stream.IntStream;
 
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -54,13 +55,11 @@ import fr.paris.lutece.plugins.forms.business.FormQuestionResponse;
 import fr.paris.lutece.plugins.forms.business.FormQuestionResponseHome;
 import fr.paris.lutece.plugins.forms.business.FormResponse;
 import fr.paris.lutece.plugins.forms.business.FormResponseHome;
-import fr.paris.lutece.plugins.forms.business.Question;
-import fr.paris.lutece.plugins.forms.business.QuestionHome;
 import fr.paris.lutece.plugins.forms.business.form.search.FormResponseSearchItem;
 import fr.paris.lutece.plugins.forms.service.entrytype.EntryTypeDate;
 import fr.paris.lutece.plugins.forms.service.entrytype.EntryTypeGeolocation;
 import fr.paris.lutece.plugins.forms.service.entrytype.EntryTypeNumbering;
-import fr.paris.lutece.plugins.genericattributes.business.Entry;
+import fr.paris.lutece.plugins.forms.util.LuceneUtils;
 import fr.paris.lutece.plugins.genericattributes.business.Response;
 import fr.paris.lutece.plugins.genericattributes.service.entrytype.EntryTypeServiceManager;
 import fr.paris.lutece.plugins.genericattributes.service.entrytype.IEntryTypeService;
@@ -69,49 +68,110 @@ import fr.paris.lutece.plugins.search.solr.business.field.Field;
 import fr.paris.lutece.plugins.search.solr.indexer.SolrIndexer;
 import fr.paris.lutece.plugins.search.solr.indexer.SolrIndexerService;
 import fr.paris.lutece.plugins.search.solr.indexer.SolrItem;
+import fr.paris.lutece.plugins.search.solr.util.LuteceSolrRuntimeException;
 import fr.paris.lutece.plugins.workflowcore.business.state.State;
 import fr.paris.lutece.plugins.workflowcore.business.state.StateFilter;
 import fr.paris.lutece.plugins.workflowcore.service.resource.IResourceWorkflowService;
 import fr.paris.lutece.plugins.workflowcore.service.state.IStateService;
-import fr.paris.lutece.portal.service.search.IndexationService;
-import fr.paris.lutece.portal.service.search.SearchIndexer;
 import fr.paris.lutece.portal.service.util.AppLogService;
 import fr.paris.lutece.portal.service.util.AppPropertiesService;
 
+/**
+ * The Solr Response Forms indexer service for Solr.
+ *
+ */
 public class SolrFormsIndexer implements SolrIndexer
 {
-    private static final int TAILLE_LOT = AppPropertiesService.getPropertyInt( "forms-solr.index.writer.commit.size", 100 );
+    private static final int TAILLE_LOT = AppPropertiesService.getPropertyInt( Utilities.PROPERTY_BATCH, 100 );
+    private static final List<String> LIST_RESSOURCES_NAME = new ArrayList< >( );
     
-    @Inject
+    @Autowired( required = false )
     private IResourceWorkflowService _resourceWorkflowService;
 
     @Autowired( required = false )
     private IStateService _stateService;
 
-    @Override
-    public List<Field> getAdditionalFields( )
-    {
-        return null;
+    
+    /**
+     * Create Solr Response Form Indexer
+     */
+    public SolrFormsIndexer() {
+    	
+    	LIST_RESSOURCES_NAME.add( FormResponse.RESOURCE_TYPE );
     }
-
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public String getName( )
+    {
+        return AppPropertiesService.getProperty( Utilities.FORMS_NAME );
+    }
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public String getDescription( )
     {
-        return Utilities.FORMS_DESCRIPTION;
+        return AppPropertiesService.getProperty( Utilities.FORMS_DESCRIPTION );
+    }
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public boolean isEnable( )
+    {
+        return "true".equalsIgnoreCase( AppPropertiesService.getProperty( Utilities.PROPERTY_INDEXER_ENABLE ) );
+    }
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public String getResourceUid( String strResourceId, String strResourceType )
+    {
+        StringBuilder stringBuilder = new StringBuilder( strResourceId );        
+        stringBuilder.append( '_' ).append( Utilities.SHORT_NAME_FORMS );
+       
+        return stringBuilder.toString( );
+    }
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public List<String> getResourcesName( )
+    {
+        return LIST_RESSOURCES_NAME;
+    }
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public String getVersion( )
+    {
+        return AppPropertiesService.getProperty( Utilities.PROPERTY_INDEXER_ENABLE );
+    }
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public List<Field> getAdditionalFields( )
+    {
+    	//To be implemented later to add facets
+        return new ArrayList<>( );
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public List<SolrItem> getDocuments( String idFormResponse )
     {
-    	List<SolrItem> solrItemList = new ArrayList< >( );
-		
-    	int idDocument = Integer.parseInt( idFormResponse );
-		FormResponse response = FormResponseHome.findByPrimaryKeyForIndex( idDocument );
-		Form form = FormHome.findByPrimaryKey(response.getFormId( ));
+		final FormResponse formResponse = FormResponseHome.findByPrimaryKeyForIndex( Integer.parseInt( idFormResponse ) );
+		Form form = FormHome.findByPrimaryKey(formResponse.getFormId( ));
 		State formResponseState = null;
         if ( _stateService != null )
         {
-            formResponseState = _stateService.findByResource( response.getId( ), FormResponse.RESOURCE_TYPE, form.getIdWorkflow( ) );
+            formResponseState = _stateService.findByResource( formResponse.getId( ), FormResponse.RESOURCE_TYPE, form.getIdWorkflow( ) );
         }
         else
         {
@@ -122,276 +182,236 @@ public class SolrFormsIndexer implements SolrIndexer
 		SolrItem solrItem = null;
 		try
         {
-            solrItem = getSolrItem( response, form, formResponseState );
+            solrItem = getSolrItem( formResponse, form, formResponseState, 
+                    formResponse.getSteps( ).stream( ).flatMap( step -> step.getQuestions( ).stream( ) ).collect( Collectors.toList( ) ));
         }
         catch( Exception e )
         {
-            IndexationService.error( (SearchIndexer) this, e, null );
+        	AppLogService.error( Utilities.DOC_INDEXATION_ERROR ,idFormResponse, e );
+        	 throw new LuteceSolrRuntimeException( e.getMessage( ), e );
         }
-		if (solrItem != null)
-		{
-			solrItemList.add(solrItem);
-		}
-        return solrItemList;
-    }
-
-    @Override
-    public String getName( )
-    {
-        return Utilities.FORMS_NAME;
-    }
-
-    @Override
-    public String getResourceUid( String strResourceId, String strResourceType )
-    {
-        StringBuilder stringBuilder = new StringBuilder( strResourceId );
-        if ( Utilities.RESOURCE_TYPE_FORMS.equals( strResourceType ) )
-        {
-            stringBuilder.append( '_' ).append( Utilities.SHORT_NAME_FORMS );
-        }
-        else
-        {
-            AppLogService.error( "SolrAppointmentIndexer, unknown resourceType: {}", strResourceType );
-            return null;
-        }
-        return stringBuilder.toString( );
-    }
-
-    @Override
-    public List<String> getResourcesName( )
-    {
-    	List<String> list = new ArrayList<>( );
-    	list.add( FormResponse.RESOURCE_TYPE );
-        return list;
-    }
-
-    @Override
-    public String getVersion( )
-    {
-        return Utilities.FORMS_VERSION;
-    }
-
-    @Override
-    public List<String> indexDocuments( )
-    {
-        List<String> errors = new ArrayList<>();
-        List<Integer> listFormResponsesId = FormResponseHome.selectAllFormResponsesId( );
-        
-        try
-            {
-        		List<Integer> listFormResponsesIdLot = new ArrayList<>( TAILLE_LOT );
-                Map<Integer, State> mapState = _stateService.getListStateByFilter( new StateFilter( ) ).stream( )
-                        .collect( Collectors.toMap( State::getId, state -> state ) );
-	        	for (int i : listFormResponsesId)
-	            {
-	        		listFormResponsesIdLot.add(i);
-	        		if ( listFormResponsesIdLot.size( ) == TAILLE_LOT )
-                    {
-	        			indexFormResponseLot(listFormResponsesIdLot, mapState);
-	        			listFormResponsesIdLot.clear();
-                    }
-	            }
-	        	indexFormResponseLot(listFormResponsesIdLot, mapState);
-	        	
-            }
-            catch( Exception e )
-            {
-                AppLogService.error( e.getMessage( ), e );
-                errors.add(e.toString());
-            }
-        return errors;
-    }
-    
-    private void indexFormResponseLot( List<Integer> listFormResponsesIdLot, Map<Integer, State> mapState )
-    {
-    	List<FormResponse> formResponseList = FormResponseHome.getFormResponseUncompleteByPrimaryKeyList(listFormResponsesIdLot);
-    	State formResponseState = new State( );
-        formResponseState.setId( -1 );
-        formResponseState.setName( StringUtils.EMPTY );
-        Map <Integer, Integer> mapIdState = new HashMap<>();
-        for (Form form : FormHome.getFormList())
-        {
-            mapIdState.putAll( _resourceWorkflowService.getListIdStateByListId( listFormResponsesIdLot, form.getIdWorkflow( ),
-                    FormResponse.RESOURCE_TYPE, form.getId()) );
-        }
-		indexFormResponseList( formResponseList, formResponseState, mapState, mapIdState );
+		
+        return Arrays.asList(solrItem);
     }
 
     /**
      * {@inheritDoc}
-     * @param listFormResponse 
-     * @param listFormQuestionResponse 
-     * @param formResponseState
-     * @param mapState 
-     * @param mapIdState 
      */
-    private void indexFormResponseList( List<FormResponse> listFormResponse, State formResponseState, Map<Integer, State> mapState, Map<Integer, Integer> mapIdState )
+    @Override
+    public List<String> indexDocuments( )
+    {
+        List<String> errors = new ArrayList<>();
+        final List<Integer> listFormResponsesId = FormResponseHome.selectAllFormResponsesId( );  
+        final List <State> listState = (_stateService != null && _resourceWorkflowService!= null )?_stateService.getListStateByFilter( new StateFilter( ) ): new ArrayList<>();
+        State defaultFormResponseState = new State( );
+        defaultFormResponseState.setId( -1 );
+        defaultFormResponseState.setName( StringUtils.EMPTY );
+        	
+        IntStream.range(0, (listFormResponsesId.size()+ TAILLE_LOT-1)/TAILLE_LOT )
+            .mapToObj(i -> listFormResponsesId.subList(i*TAILLE_LOT, Math.min(listFormResponsesId.size(), (i+1)*TAILLE_LOT)))
+            .forEach(batch -> {
+				try {
+					
+					indexingByBatch( batch, listState, FormHome.getFormList( ) , defaultFormResponseState );
+				
+				} catch (IOException e) {
+					
+					AppLogService.error( e.getMessage( ), e );
+					errors.add( SolrIndexerService.buildErrorMessage( e ) );
+					return;
+				}
+             });        	
+            
+        return errors;
+    }
+    /**
+     * Indexing Form Responses by batch
+     * @param FormResponsesIdBatch the list of Form Responses Id
+     * @param listState the list of all workflow State
+     * @param lisForms the form list
+     * @param defaultFormResponseState the default Form ResponseState
+     * @throws IOException the IOException
+     */
+    private void indexingByBatch( final List<Integer> formResponsesIdBatch, final List<State> listState, final List<Form> listForms, final State defaultFormResponseState ) throws IOException
+    {
+        Map <Integer, Integer> mapIdState = new HashMap<>( );
+        if( _resourceWorkflowService != null ) {
+        	
+        	listForms.forEach(form -> mapIdState.putAll( _resourceWorkflowService.getListIdStateByListId( formResponsesIdBatch, form.getIdWorkflow( ),
+                    FormResponse.RESOURCE_TYPE, form.getId()) ));  
+        }		
+    	SolrIndexerService.write(
+    		  getSolrItems( FormResponseHome.getFormResponseUncompleteByPrimaryKeyList(formResponsesIdBatch), 
+							formResponsesIdBatch.stream().collect(Collectors.toMap( formResponseId -> formResponseId, formResponseId-> listState.stream( )
+								.filter( state -> ( mapIdState.get( formResponseId ) != null && state.getId() == mapIdState.get( formResponseId )) )
+								.findAny( ).orElse(defaultFormResponseState) )), 
+							listForms.stream().collect(Collectors.toMap(Form::getId, Function.identity( ))),
+							FormQuestionResponseHome.getFormQuestionResponseListByFormResponseList( formResponsesIdBatch )
+								.stream().collect(Collectors.groupingBy(FormQuestionResponse::getIdFormResponse))
+    		)
+    	);
+    }
+
+    /**
+     * Builds a documents which will be used by solr during the indexing of the form responses
+     *
+     * @param listFormResponse the form responses list
+     * @param mapResourceState the resource state list grouping by FormResponseId:  Map<FormResponseId, State>
+     * @param mapFom the form list grouping by form Id: Map<FormId, Form>
+     * @param mapFormQuestionResponse the Form Question Responses list grouping byFormResponseId: Map<FormResponseId, List<FormQuestionResponse>>
+     * @return collection of SolrItem
+     * @throws IOException the IOException
+     */
+    private Collection<SolrItem> getSolrItems( List<FormResponse> listFormResponse, Map<Integer, State> mapResourceState, Map<Integer, Form> mapFom, Map<Integer, List<FormQuestionResponse>> mapFormQuestionResponse ) throws IOException
     {
         Collection<SolrItem> solrItemList = new ArrayList<>( );
+        
         for ( FormResponse formResponse : listFormResponse )
-        {
-            SolrItem solrItem = null;
-            Form form = FormHome.findByPrimaryKey(formResponse.getFormId( ));
-            
-            if ( _stateService != null )
-            {
-                formResponseState = mapState.get(mapIdState.get(formResponse.getId()));
-            }
-
-            try
-            {
-                solrItem = getSolrItem( formResponse, form, formResponseState );
-            }
-            catch( Exception e )
-            {
-            	AppLogService.error("Error during indexation", e);
-            }
-
-            if ( solrItem != null )
-            {
-                solrItemList.add( solrItem );
-            }
+        {           
+            solrItemList.add( getSolrItem( formResponse, mapFom.get(formResponse.getFormId( )), mapResourceState.get(formResponse.getId( )), mapFormQuestionResponse.get(formResponse.getId( )) ) );            
         }
-        addSolrItems( solrItemList );
+        return solrItemList;
     }
-
-    private void addSolrItems( Collection<SolrItem> solrItemList )
+    /**
+    * Builds a document which will be used by solr during the indexing of the form responses
+    * @param formResponse the form reponse
+    * @param form the form
+    * @param formResponseState the form Response State
+    * @param formQuestionResponseList the form Question Response List
+    * @return the SolrItem builded
+    */
+    private SolrItem getSolrItem( FormResponse formResponse, Form form, State formResponseState,  List<FormQuestionResponse> formQuestionResponseList)
     {
-        try
-        {
-        	SolrIndexerService.write( solrItemList );
-        }
-        catch( IOException e )
-        {
-            AppLogService.error( "Unable to index form response", e );
-        }
-        solrItemList.clear( );
-    }
-
-    private SolrItem getSolrItem( FormResponse formResponse, Form form, State formResponseState )
-    {
-    	List<FormQuestionResponse> formQuestionResponseList = FormQuestionResponseHome.getFormQuestionResponseListByFormResponse(formResponse.getId()).stream().filter(x -> x.getIdFormResponse( ) == formResponse.getId( )).collect( Collectors.toList( ) );
-        SolrItem solrItem = initSolrItem(formResponse, form, formResponseState, formQuestionResponseList);
+       
+    	SolrItem solrItem = initSolrItem(formResponse, form, formResponseState, formQuestionResponseList);
         // --- form response entry code / fields
+        Set<String> setFieldNameBuilderUsed = new HashSet<>( );
+        IEntryTypeService typerService= null;
         for ( FormQuestionResponse formQuestionResponse : formQuestionResponseList )
-        {
+        {        	
             for ( Response response : formQuestionResponse.getEntryResponse( ) )
             {
-                indexResponse(solrItem, formQuestionResponse, response, formResponse.getId( ));
+            	typerService  =EntryTypeServiceManager.getEntryTypeService( response.getEntry( ) );
+            	//add the Response Value to solrItem
+            	addResponseValue(solrItem, formQuestionResponse.getQuestion().getCode( ), typerService, response, formResponse.getId( ), setFieldNameBuilderUsed);
             }
         }
         return solrItem;
     }
-    
+    /**
+     * initiate the build of an document which will be used by solr during the indexing of the form responses
+     * @param formResponse the form reponse
+     * @param form the form
+     * @param formResponseState the form Response State
+     * @param formQuestionResponseList the form Question Response List
+     * @return the SolrItem builded
+     */
     private SolrItem initSolrItem( FormResponse formResponse, Form form, State formResponseState, List<FormQuestionResponse> formQuestionResponseList )
     {
     	// make a new, empty SolrItem
         SolrItem solrItem = new SolrItem( );
-
         int nIdFormResponse = formResponse.getId( );
-
         solrItem.setSite( SolrIndexerService.getWebAppName( ) );
         solrItem.setRole( Utilities.SHORT_ROLE_FORMS );
         solrItem.setType( Utilities.SHORT_NAME_FORMS );
-        solrItem.setUid( String.valueOf( nIdFormResponse ) + '_' + Utilities.SHORT_ROLE_FORMS );
+        solrItem.setUid(  nIdFormResponse  + '_' + Utilities.SHORT_ROLE_FORMS );
         solrItem.setTitle( Utilities.SHORT_ROLE_FORMS + " #" + nIdFormResponse );
         solrItem.setDate( formResponse.getCreation( ) );
         solrItem.setUrl("#");
 
         // --- form response identifier
-        solrItem.addDynamicField( FormResponseSearchItem.FIELD_ID_FORM_RESPONSE, String.valueOf( nIdFormResponse ) );
+        solrItem.addDynamicField( FormResponseSearchItem.FIELD_ID_FORM_RESPONSE,  Long.valueOf( nIdFormResponse ));
         
         // --- field contents
-        solrItem.setContent(manageNullValue( getContentToIndex( formQuestionResponseList, form ) ));
+        solrItem.setContent( getContentToIndex( formQuestionResponseList ));
 
         // --- form title
-        String strFormTitle = manageNullValue( form.getTitle( ) );
-        solrItem.addDynamicField( FormResponseSearchItem.FIELD_FORM_TITLE, strFormTitle );
+        solrItem.addDynamicField( FormResponseSearchItem.FIELD_FORM_TITLE, form.getTitle( ) );
 
         // --- id form
-        solrItem.addDynamicField( FormResponseSearchItem.FIELD_ID_FORM, String.valueOf( form.getId( ) ) );
+        solrItem.addDynamicField( FormResponseSearchItem.FIELD_ID_FORM,  Long.valueOf( form.getId( ) ));
 
         // --- form response date create
-        Long longCreationDate = formResponse.getCreation( ).getTime( );
-        solrItem.addDynamicField( FormResponseSearchItem.FIELD_DATE_CREATION, longCreationDate );
+        solrItem.addDynamicField( FormResponseSearchItem.FIELD_DATE_CREATION, formResponse.getCreation( ).getTime( ) );
 
         // --- form response date closure
-        Long longUpdateDate = formResponse.getUpdate( ).getTime( );
-        solrItem.addDynamicField( FormResponseSearchItem.FIELD_DATE_UPDATE, longUpdateDate );
+        solrItem.addDynamicField( FormResponseSearchItem.FIELD_DATE_UPDATE, formResponse.getUpdate( ).getTime( ) );
         
-        if ( formResponseState != null )
-        {
-            // --- id form response workflow state
-            int nIdFormResponseWorkflowState = formResponseState.getId( );
-            solrItem.addDynamicField( FormResponseSearchItem.FIELD_ID_WORKFLOW_STATE, String.valueOf( nIdFormResponseWorkflowState ) );
-
-            // --- form response workflow state title
-            String strFormResponseWorkflowStateTitle = manageNullValue( formResponseState.getName( ) );
-            solrItem.addDynamicField( FormResponseSearchItem.FIELD_TITLE_WORKFLOW_STATE, strFormResponseWorkflowStateTitle );
-        }
+        // --- id form response workflow state
+        solrItem.addDynamicField( FormResponseSearchItem.FIELD_ID_WORKFLOW_STATE, Long.valueOf( formResponseState.getId( ) ) );
+        
+        // --- form response workflow state title
+         solrItem.addDynamicField( FormResponseSearchItem.FIELD_TITLE_WORKFLOW_STATE, formResponseState.getName( ) );
         
         return solrItem;
     }
-    
-    private void indexResponse(SolrItem solrItem, FormQuestionResponse formQuestionResponse, Response response, int formResponseId)
+    /**
+     * Add Response Value from question reponse  to solrItem object
+     * @param solrItem the solrItem object
+     * @param codeQuestion the Question code
+     * @param entryTypeService the EntryTypeService
+     * @param response the Response
+     * @param formResponseId the form Response Id
+     * @param setFieldNameBuilderUsed 
+     */
+    private void addResponseValue(SolrItem solrItem, String codeQuestion, IEntryTypeService entryTypeService , Response response, int formResponseId, Set<String> setFieldNameBuilderUsed)
     {
-    	Set<String> setFieldNameBuilderUsed = new HashSet<>( );
-    	String strQuestionCode = formQuestionResponse.getQuestion( ).getCode( );
-    	if ( !StringUtils.isEmpty( response.getResponseValue( ) ) )
-        {
-            StringBuilder fieldNameBuilder = new StringBuilder(
-            		createSolrEntryKey( strQuestionCode, response.getIterationNumber( ), response ) );
-            if ( !setFieldNameBuilderUsed.contains( fieldNameBuilder.toString( ) ) )
-            {
-                setFieldNameBuilderUsed.add( fieldNameBuilder.toString( ) );
-                indexResponseValue(solrItem, formQuestionResponse, response, fieldNameBuilder);
-            }
-            else
-            {
-                AppLogService.error( " FieldNameBuilder {}  already used for formResponse.getId( )  {}  formQuestionResponse.getId( )  {} response.getIdResponse( ) {}",
-                		fieldNameBuilder.toString( ), formResponseId, formQuestionResponse.getId( ), response.getIdResponse( ) );
-            }
+      	
+    	if ( StringUtils.isNotEmpty( response.getResponseValue( ) ) )
+	        {
+	            StringBuilder fieldNameBuilder = new StringBuilder(
+	            		 LuceneUtils.createLuceneEntryKey( codeQuestion , response.getIterationNumber( ) ) );
+	            fr.paris.lutece.plugins.genericattributes.business.Field responseField = response.getField( );
+		
+	            if ( responseField != null )
+	            {
+	                    String getFieldName = getFieldName( responseField, response );
+	                    fieldNameBuilder.append( FormResponseSearchItem.FIELD_RESPONSE_FIELD_SEPARATOR );
+	                    fieldNameBuilder.append( getFieldName );
+	             }
+	            
+	            if ( !setFieldNameBuilderUsed.contains( fieldNameBuilder.toString( ) ) )
+	            {
+	                setFieldNameBuilderUsed.add( fieldNameBuilder.toString( ) );
+	                addResponseValueByType(solrItem, entryTypeService, response, fieldNameBuilder);
+	            }
+	            else
+	            {
+	                AppLogService.error( " FieldNameBuilder {}  already used for formResponse.getId( )  {}  codeQuestion  {} response.getIdResponse( ) {}",
+	                		fieldNameBuilder.toString( ), formResponseId, codeQuestion, response.getIdResponse( ) );
+	            }
         }
     }
-    
-    private void indexResponseValue(SolrItem solrItem, FormQuestionResponse formQuestionResponse, Response response, StringBuilder fieldNameBuilder)
+    /**
+     * Add Response Value By Type of the Entry to solrItem object
+     * @param solrItem the SolrItem object
+     * @param entryTypeService the EntryTypeService
+     * @param response the response
+     * @param fieldNameBuilder the field Name
+     */
+    private void addResponseValueByType(SolrItem solrItem, IEntryTypeService entryTypeService, Response response, StringBuilder fieldNameBuilder)
     {
-        Entry entry = formQuestionResponse.getQuestion( ).getEntry( );
-    	IEntryTypeService entryTypeService = EntryTypeServiceManager.getEntryTypeService( entry );
+      
     	if ( entryTypeService instanceof EntryTypeDate )
         {
-            try
-            {
-                Long timestamp = Long.valueOf( response.getResponseValue( ) );
-                solrItem.addDynamicField( fieldNameBuilder.toString( ) + FormResponseSearchItem.FIELD_DATE_SUFFIX, timestamp );
-            }
-            catch( Exception e )
-            {
-                AppLogService.error( "Unable to parse {}", response.getResponseValue( ), e );
-            }
+         
+                solrItem.addDynamicField( fieldNameBuilder.toString( ) + FormResponseSearchItem.FIELD_DATE_SUFFIX, Long.valueOf( response.getResponseValue( ) ));
+            
         }
         else
             if ( entryTypeService instanceof EntryTypeNumbering )
             {
-                try
-                {
-                    solrItem.addDynamicField( fieldNameBuilder.toString( ) + FormResponseSearchItem.FIELD_INT_SUFFIX,
-                            response.getResponseValue( ) );
-                }
-                catch( NumberFormatException e )
-                {
-                    AppLogService.error( "Unable to parse {} to integer ", response.getResponseValue( ), e );
-                }
+              
+                  solrItem.addDynamicField( fieldNameBuilder.append( FormResponseSearchItem.FIELD_INT_SUFFIX).toString( ),
+                            Long.parseLong( response.getResponseValue( )) );
+               
             }
             else
             	if (entryTypeService instanceof EntryTypeGeolocation)
             	{
-            		GeolocItem geolocItem = new GeolocItem(  );
-            		//todo
-            		HashMap<String, Object> gref = new HashMap<>(  );
-            		//gref.put( "coordinates", Arrays.asList( new Double[] { 2.31272, 48.83632 } ) );
-            		geolocItem.setGeometry( gref );
-            		solrItem.addDynamicFieldGeoloc("", geolocItem, "");
+            		//The built of the address is to be tested...!!!             
+                	solrItem.addDynamicFieldGeoloc(fieldNameBuilder.toString( ), response.getResponseValue( ), fieldNameBuilder.toString( ));
+                    
             	}
             	else
 	            {
@@ -401,8 +421,6 @@ public class SolrFormsIndexer implements SolrIndexer
 
     /**
      * Concatenates the value of the specified field in this record
-     * @param formQuestionResponseList 
-     * @param form 
      * 
      * @param record
      *            the record to seek
@@ -410,43 +428,33 @@ public class SolrFormsIndexer implements SolrIndexer
      *            the list of field to concatenate
      * @param plugin
      *            the plugin object
-     * @return
+     * @return the builded content
      */
-    private String getContentToIndex( List<FormQuestionResponse> formQuestionResponseList, Form form )
+    private String getContentToIndex( List<FormQuestionResponse> listFormQuestionResponse )
     {
 
         StringBuilder sb = new StringBuilder( );
-        List<Question> listQuestions = QuestionHome.getListQuestionByIdForm(form.getId());
-
-        for ( FormQuestionResponse formQuestionResponse : formQuestionResponseList )
-        {
-        	Question question = listQuestions.stream( ).filter( qa -> qa.getId( ) == formQuestionResponse.getQuestion( ).getId( ) ).findFirst( ).get( );
-
-            // Only index the indexable entries
-            if ( question != null )
+        for ( FormQuestionResponse questionResponse : listFormQuestionResponse )
+        {          
+            for ( Response response : questionResponse.getEntryResponse( ) )
             {
-                Entry entry = question.getEntry( );
-                for ( Response response : formQuestionResponse.getEntryResponse( ) )
-                {
-
-                    String responseString = EntryTypeServiceManager.getEntryTypeService( entry ).getResponseValueForExport( entry, null, response, null );
-                    if ( !StringUtils.isEmpty( responseString ) )
-                    {
-                        sb.append( responseString );
-                        sb.append( " " );
-                    }
-                }
-            }
-        }
-
+                  String responseString = EntryTypeServiceManager.getEntryTypeService( response.getEntry( ) ).getResponseValueForExport( response.getEntry( ), null, response, null );
+                  if ( !StringUtils.isEmpty( responseString ) )
+                  {
+                       sb.append( responseString );
+                       sb.append( " " );
+                  }
+             }            
+           }
+        
         return sb.toString( );
     }
 
     /**
      * Get the field name
      * 
-     * @param responseField
-     * @param response
+     * @param responseField the reponse field
+     * @param response the reponse
      * @return the field name
      */
     private String getFieldName( fr.paris.lutece.plugins.genericattributes.business.Field responseField, Response response )
@@ -465,56 +473,5 @@ public class SolrFormsIndexer implements SolrIndexer
         }
         return String.valueOf( response.getIdResponse( ) );
     }
-
-    /**
-     * Manage a given string null value
-     * 
-     * @param strValue
-     * @return the string if not null, empty string otherwise
-     */
-    private String manageNullValue( String strValue )
-    {
-        if ( strValue == null )
-        {
-            return StringUtils.EMPTY;
-        }
-        return strValue;
-    }
-    
-    /**
-     * Creates the lucene index key.
-     * 
-     * @param strQuestionCode
-     * @param nIterationNumber
-     * @return key
-     */
-    private String createSolrEntryKey( String strQuestionCode, int nIterationNumber, Response response )
-    {
-        StringBuilder fieldNameBuilder = new StringBuilder( FormResponseSearchItem.FIELD_ENTRY_CODE_SUFFIX );
-        fieldNameBuilder.append( strQuestionCode );
-        fieldNameBuilder.append( FormResponseSearchItem.FIELD_RESPONSE_FIELD_ITER );
-
-        fr.paris.lutece.plugins.genericattributes.business.Field responseField = response.getField( );
-
-        if ( nIterationNumber == -1 )
-        {
-            nIterationNumber = 0;
-        }
-        fieldNameBuilder.append( nIterationNumber );
-        
-        if ( responseField != null )
-        {
-            String getFieldName = getFieldName( responseField, response );
-            fieldNameBuilder.append( FormResponseSearchItem.FIELD_RESPONSE_FIELD_SEPARATOR );
-            fieldNameBuilder.append( getFieldName );
-        }
-        
-        return fieldNameBuilder.toString( );
-    }
-    
-    @Override
-    public boolean isEnable( )
-    {
-        return "true".equalsIgnoreCase( AppPropertiesService.getProperty( Utilities.PROPERTY_INDEXER_ENABLE ) );
-    }
+  
 }

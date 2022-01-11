@@ -36,13 +36,16 @@ package fr.paris.lutece.plugins.forms.modules.solr.service;
 public class Utilities
 {
 
-    public static final String FORMS_NAME = "Forms";
-    public static final String FORMS_DESCRIPTION = "Forms indexer";
-    public static final String FORMS_VERSION = "1.0.0";
+    public static final String FORMS_NAME = "forms-solr.indexer.name";
+    public static final String FORMS_DESCRIPTION = "forms-solr.indexer.description";
     public static final String PROPERTY_INDEXER_ENABLE = "forms-solr.indexer.enable";
+    public static final String PROPERTY_INDEXER_VERSION = "forms-solr.indexer.version";
+    public static final String PROPERTY_BATCH = "forms-solr.index.writer.commit.size";
     public static final String RESOURCE_TYPE_FORMS = "forms";
-    public static final String SHORT_NAME_FORMS = "forms";
+    public static final String SHORT_NAME_FORMS = "formsResponse";
     public static final String SHORT_ROLE_FORMS = "formResponse";
+    public static final String DOC_INDEXATION_ERROR = "[SolrFormsResponseIndexer] An error occured during the indexation of the formResponse id: {}";
+
 
     /**
      * Private constructor - this class does not need to be instantiated

@@ -55,6 +55,8 @@ import fr.paris.lutece.plugins.forms.business.FormQuestionResponse;
 import fr.paris.lutece.plugins.forms.business.FormQuestionResponseHome;
 import fr.paris.lutece.plugins.forms.business.FormResponse;
 import fr.paris.lutece.plugins.forms.business.FormResponseHome;
+import fr.paris.lutece.plugins.forms.business.Question;
+import fr.paris.lutece.plugins.forms.business.QuestionHome;
 import fr.paris.lutece.plugins.forms.business.form.search.FormResponseSearchItem;
 import fr.paris.lutece.plugins.forms.service.entrytype.EntryTypeDate;
 import fr.paris.lutece.plugins.forms.service.entrytype.EntryTypeGeolocation;
@@ -259,6 +261,8 @@ public class SolrFormsIndexer implements SolrIndexer
             listForms.forEach( form -> mapIdState.putAll( _resourceWorkflowService.getListIdStateByListId( formResponsesIdBatch, form.getIdWorkflow( ),
                     FormResponse.RESOURCE_TYPE, form.getId( ) ) ) );
         }
+        
+        List<FormQuestionResponse> listFormQuestionResponse =FormQuestionResponseHome.getFormQuestionResponseListByFormResponseList( formResponsesIdBatch );
         SolrIndexerService
                 .write( getSolrItems( FormResponseHome.getFormResponseUncompleteByPrimaryKeyList( formResponsesIdBatch ),
                         formResponsesIdBatch.stream( )
@@ -266,8 +270,11 @@ public class SolrFormsIndexer implements SolrIndexer
                                         .filter( state -> ( mapIdState.get( formResponseId ) != null && state.getId( ) == mapIdState.get( formResponseId ) ) )
                                         .findAny( ).orElse( defaultFormResponseState ) ) ),
                         listForms.stream( ).collect( Collectors.toMap( Form::getId, Function.identity( ) ) ),
-                        FormQuestionResponseHome.getFormQuestionResponseListByFormResponseList( formResponsesIdBatch ).stream( )
-                                .collect( Collectors.groupingBy( FormQuestionResponse::getIdFormResponse ) ) ) );
+                        listFormQuestionResponse.stream( )
+                                .collect( Collectors.groupingBy( FormQuestionResponse::getIdFormResponse ) ),
+                        QuestionHome.findByPrimaryKeyList( listFormQuestionResponse.stream( )
+                           		.map( reponse ->  reponse.getQuestion().getId( ) )
+                           		.distinct( ).collect(Collectors.toList( ))).stream().collect(Collectors.toMap( Question::getId, Function.identity( ) ))) );
     }
 
     /**
@@ -281,19 +288,22 @@ public class SolrFormsIndexer implements SolrIndexer
      *            the form list grouping by form Id: Map<FormId, Form>
      * @param mapFormQuestionResponse
      *            the Form Question Responses list grouping byFormResponseId: Map<FormResponseId, List<FormQuestionResponse>>
+     * @param mapQuestions
+     * 				the question form map
      * @return collection of SolrItem
-     * @throws IOException
-     *             the IOException
      */
+   
     private Collection<SolrItem> getSolrItems( List<FormResponse> listFormResponse, Map<Integer, State> mapResourceState, Map<Integer, Form> mapFom,
-            Map<Integer, List<FormQuestionResponse>> mapFormQuestionResponse ) throws IOException
+            Map<Integer, List<FormQuestionResponse>> mapFormQuestionResponse, Map< Integer,Question > mapQuestions )
     {
         Collection<SolrItem> solrItemList = new ArrayList<>( );
 
         for ( FormResponse formResponse : listFormResponse )
         {
-            solrItemList.add( getSolrItem( formResponse, mapFom.get( formResponse.getFormId( ) ), mapResourceState.get( formResponse.getId( ) ),
-                    mapFormQuestionResponse.get( formResponse.getId( ) ) ) );
+        	List<FormQuestionResponse> formQuestionResponseList=  mapFormQuestionResponse.get( formResponse.getId( ) );
+        	formQuestionResponseList.forEach(fqr ->fqr.setQuestion(mapQuestions.get(fqr.getQuestion().getId( ))));
+            
+        	solrItemList.add( getSolrItem( formResponse, mapFom.get( formResponse.getFormId( ) ), mapResourceState.get( formResponse.getId( ) ), formQuestionResponseList ));
         }
         return solrItemList;
     }

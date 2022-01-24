@@ -362,7 +362,7 @@ public class SolrFormsIndexer implements SolrIndexer
         solrItem.setSite( SolrIndexerService.getWebAppName( ) );
         solrItem.setRole( Utilities.SHORT_ROLE_FORMS );
         solrItem.setType( Utilities.SHORT_NAME_FORMS );
-        solrItem.setUid( nIdFormResponse + '_' + Utilities.SHORT_ROLE_FORMS );
+        solrItem.setUid( Utilities.SHORT_ROLE_FORMS + '_' + nIdFormResponse );
         solrItem.setTitle( Utilities.SHORT_ROLE_FORMS + " #" + nIdFormResponse );
         solrItem.setDate( formResponse.getCreation( ) );
         solrItem.setUrl( "#" );
@@ -384,6 +384,9 @@ public class SolrFormsIndexer implements SolrIndexer
 
         // --- form response date closure
         solrItem.addDynamicField( FormResponseSearchItem.FIELD_DATE_UPDATE, formResponse.getUpdate( ).getTime( ) );
+        
+        // --- form response published boolean
+        solrItem.addDynamicField( FormResponseSearchItem.FIELD_PUBLISHED, String.valueOf( formResponse.isPublished() ) );
 
         // --- id form response workflow state
         solrItem.addDynamicField( FormResponseSearchItem.FIELD_ID_WORKFLOW_STATE, Long.valueOf( formResponseState.getId( ) ) );

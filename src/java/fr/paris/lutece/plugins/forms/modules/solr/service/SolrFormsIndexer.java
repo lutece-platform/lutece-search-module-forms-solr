@@ -417,7 +417,7 @@ public class SolrFormsIndexer implements SolrIndexer
         if ( StringUtils.isNotEmpty( response.getResponseValue( ) ) )
         {
             StringBuilder fieldNameBuilder = new StringBuilder( LuceneUtils.createLuceneEntryKey( codeQuestion, response.getIterationNumber( ) ) );
-            if ( !setFieldNameBuilderUsed.contains( fieldNameBuilder.toString( ) ) )
+            if ( !setFieldNameBuilderUsed.contains( fieldNameBuilder.toString( ) ) || ( entryTypeService instanceof EntryTypeCheckBox ) )
             {
                 setFieldNameBuilderUsed.add( fieldNameBuilder.toString( ) );
                 addResponseValueByType( solrItem, entryTypeService, response, fieldNameBuilder );
@@ -475,7 +475,7 @@ public class SolrFormsIndexer implements SolrIndexer
                 	}else
                 	{
                 		
-                		dfListBox= Arrays.asList( response.getResponseValue( ));
+                		dfListBox= new ArrayList< >( Arrays.asList( response.getResponseValue( )));
                 	}
                 	solrItem.addDynamicField( fieldNameBuilder.toString( ), dfListBox);
                 }
@@ -516,31 +516,4 @@ public class SolrFormsIndexer implements SolrIndexer
 
         return sb.toString( );
     }
-
-    /**
-     * Get the field name
-     * 
-     * @param responseField
-     *            the reponse field
-     * @param response
-     *            the reponse
-     * @return the field name
-     */
-    private String getFieldName( fr.paris.lutece.plugins.genericattributes.business.Field responseField, Response response )
-    {
-        if ( responseField.getIdField( ) > 0 )
-        {
-            return String.valueOf( responseField.getIdField( ) );
-        }
-        if ( !StringUtils.isEmpty( responseField.getCode( ) ) )
-        {
-            return responseField.getCode( );
-        }
-        if ( !StringUtils.isEmpty( responseField.getTitle( ) ) )
-        {
-            return responseField.getTitle( );
-        }
-        return String.valueOf( response.getIdResponse( ) );
-    }
-
 }

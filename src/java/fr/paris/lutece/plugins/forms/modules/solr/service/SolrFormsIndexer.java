@@ -58,6 +58,7 @@ import fr.paris.lutece.plugins.forms.business.FormResponseHome;
 import fr.paris.lutece.plugins.forms.business.Question;
 import fr.paris.lutece.plugins.forms.business.QuestionHome;
 import fr.paris.lutece.plugins.forms.business.form.search.FormResponseSearchItem;
+import fr.paris.lutece.plugins.forms.service.entrytype.EntryTypeCheckBox;
 import fr.paris.lutece.plugins.forms.service.entrytype.EntryTypeDate;
 import fr.paris.lutece.plugins.forms.service.entrytype.EntryTypeGeolocation;
 import fr.paris.lutece.plugins.forms.service.entrytype.EntryTypeNumbering;
@@ -416,15 +417,6 @@ public class SolrFormsIndexer implements SolrIndexer
         if ( StringUtils.isNotEmpty( response.getResponseValue( ) ) )
         {
             StringBuilder fieldNameBuilder = new StringBuilder( LuceneUtils.createLuceneEntryKey( codeQuestion, response.getIterationNumber( ) ) );
-            fr.paris.lutece.plugins.genericattributes.business.Field responseField = response.getField( );
-
-            if ( responseField != null )
-            {
-                String getFieldName = getFieldName( responseField, response );
-                fieldNameBuilder.append( FormResponseSearchItem.FIELD_RESPONSE_FIELD_SEPARATOR );
-                fieldNameBuilder.append( getFieldName );
-            }
-
             if ( !setFieldNameBuilderUsed.contains( fieldNameBuilder.toString( ) ) )
             {
                 setFieldNameBuilderUsed.add( fieldNameBuilder.toString( ) );
@@ -473,6 +465,19 @@ public class SolrFormsIndexer implements SolrIndexer
                     // The built of the address is to be tested...!!!
                     solrItem.addDynamicFieldGeoloc( fieldNameBuilder.toString( ), response.getResponseValue( ), fieldNameBuilder.toString( ) );
 
+                }else if ( entryTypeService instanceof EntryTypeCheckBox  ) {
+                	
+                	List<String> dfListBox= (List<String>) solrItem.getDynamicFields().get( fieldNameBuilder.toString( ) + SolrItem.DYNAMIC_LIST_FIELD_SUFFIX );
+                	
+                	if( dfListBox != null ) 
+                	{
+                		dfListBox.add( response.getResponseValue( ) );
+                	}else
+                	{
+                		
+                		dfListBox= Arrays.asList( response.getResponseValue( ));
+                	}
+                	solrItem.addDynamicField( fieldNameBuilder.toString( ), dfListBox);
                 }
                 else
                 {

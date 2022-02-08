@@ -37,6 +37,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -47,6 +48,8 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.solr.client.solrj.SolrServerException;
+import org.apache.solr.client.solrj.util.ClientUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import fr.paris.lutece.plugins.forms.business.Form;
@@ -67,15 +70,18 @@ import fr.paris.lutece.plugins.genericattributes.business.FieldHome;
 import fr.paris.lutece.plugins.genericattributes.business.Response;
 import fr.paris.lutece.plugins.genericattributes.service.entrytype.EntryTypeServiceManager;
 import fr.paris.lutece.plugins.genericattributes.service.entrytype.IEntryTypeService;
+import fr.paris.lutece.plugins.search.solr.business.SolrServerService;
 import fr.paris.lutece.plugins.search.solr.business.field.Field;
 import fr.paris.lutece.plugins.search.solr.indexer.SolrIndexer;
 import fr.paris.lutece.plugins.search.solr.indexer.SolrIndexerService;
 import fr.paris.lutece.plugins.search.solr.indexer.SolrItem;
 import fr.paris.lutece.plugins.search.solr.util.LuteceSolrRuntimeException;
+import fr.paris.lutece.plugins.search.solr.util.SolrConstants;
 import fr.paris.lutece.plugins.workflowcore.business.state.State;
 import fr.paris.lutece.plugins.workflowcore.business.state.StateFilter;
 import fr.paris.lutece.plugins.workflowcore.service.resource.IResourceWorkflowService;
 import fr.paris.lutece.plugins.workflowcore.service.state.IStateService;
+import fr.paris.lutece.portal.service.search.SearchItem;
 import fr.paris.lutece.portal.service.util.AppLogService;
 import fr.paris.lutece.portal.service.util.AppPropertiesService;
 
@@ -137,7 +143,7 @@ public class SolrFormsIndexer implements SolrIndexer
     public String getResourceUid( String strResourceId, String strResourceType )
     {
         StringBuilder stringBuilder = new StringBuilder( strResourceId );
-        stringBuilder.append( '_' ).append( Utilities.SHORT_NAME_FORMS );
+        stringBuilder.append( "_" ).append( FormResponse.RESOURCE_TYPE );
 
         return stringBuilder.toString( );
     }
@@ -177,6 +183,21 @@ public class SolrFormsIndexer implements SolrIndexer
     public List<SolrItem> getDocuments( String idFormResponse )
     {
         final FormResponse formResponse = FormResponseHome.findByPrimaryKeyForIndex( Integer.parseInt( idFormResponse ) );
+       
+        if( !formResponse.isPublished( ) ) {
+        	// delete all index linked to uid. We get the uid of the resource to prefix it like we do during the indexation         
+        	try {
+				SolrServerService.getInstance( ).getSolrServer( ).deleteByQuery( SearchItem.FIELD_UID + ":" + ClientUtils.escapeQueryChars(SolrIndexerService.getWebAppName( )) + SolrConstants.CONSTANT_UNDERSCORE
+				        + getResourceUid( String.valueOf( formResponse.getId( )), FormResponse.RESOURCE_TYPE ) );
+			
+        	} catch (SolrServerException | IOException e)  {
+				
+				AppLogService.error( Utilities.DOC_DELETE_BY_QUERY_ERROR, idFormResponse, e );
+	            throw new LuteceSolrRuntimeException( e.getMessage( ), e );
+			} 
+        	return Collections.emptyList( );  
+        } 
+        
         Form form = FormHome.findByPrimaryKey( formResponse.getFormId( ) );
         State formResponseState = null;
         if ( _stateService != null )
@@ -257,23 +278,28 @@ public class SolrFormsIndexer implements SolrIndexer
      * @throws IOException
      *             the IOException
      */
-    private void indexingByBatch( final List<Integer> formResponsesIdBatch, final List<State> listState, final List<Form> listForms,
+    private void indexingByBatch( List<Integer> formResponsesIdBatch, final List<State> listState, final List<Form> listForms,
             final State defaultFormResponseState ) throws IOException
     {
         Map<Integer, Integer> mapIdState = new HashMap<>( );
+        // we filter the formResponse on the status to index only the published formsResponse
+    	List<FormResponse> listFormReesponse= FormResponseHome.getFormResponseUncompleteByPrimaryKeyList( formResponsesIdBatch )
+  				.stream().filter(FormResponse::isPublished).collect(Collectors.toList( ));    	
+        List<Integer>  formResponseIdList= listFormReesponse.stream().map( FormResponse::getId ).collect(Collectors.toList( ));
+
         if ( _resourceWorkflowService != null )
         {
 
-            listForms.forEach( form -> mapIdState.putAll( _resourceWorkflowService.getListIdStateByListId( formResponsesIdBatch, form.getIdWorkflow( ),
+            listForms.forEach( form -> mapIdState.putAll( _resourceWorkflowService.getListIdStateByListId( formResponseIdList, form.getIdWorkflow( ),
                     FormResponse.RESOURCE_TYPE, form.getId( ) ) ) );
         }
         
-        List<FormQuestionResponse> listFormQuestionResponse =FormQuestionResponseHome.getFormQuestionResponseListByFormResponseList( formResponsesIdBatch );
+        List<FormQuestionResponse> listFormQuestionResponse =FormQuestionResponseHome.getFormQuestionResponseListByFormResponseList( formResponseIdList );
         Set<Integer> listIdEntry =new HashSet<>();
         listFormQuestionResponse.forEach( fqr -> fqr.getEntryResponse( ).forEach( rsp -> listIdEntry.add( rsp.getEntry().getIdEntry( ))));
         SolrIndexerService
-                .write( getSolrItems( FormResponseHome.getFormResponseUncompleteByPrimaryKeyList( formResponsesIdBatch ),
-                        formResponsesIdBatch.stream( )
+                .write( getSolrItems( FormResponseHome.getFormResponseUncompleteByPrimaryKeyList( formResponseIdList ),
+                		formResponseIdList.stream( )
                                 .collect( Collectors.toMap( formResponseId -> formResponseId, formResponseId -> listState.stream( )
                                         .filter( state -> ( mapIdState.get( formResponseId ) != null && state.getId( ) == mapIdState.get( formResponseId ) ) )
                                         .findAny( ).orElse( defaultFormResponseState ) ) ),
@@ -379,11 +405,12 @@ public class SolrFormsIndexer implements SolrIndexer
     {
         // make a new, empty SolrItem
         SolrItem solrItem = new SolrItem( );
-        int nIdFormResponse = formResponse.getId( );
+        String nIdFormResponse = String.valueOf(formResponse.getId( ));
+        solrItem.setIdResource(  nIdFormResponse );
         solrItem.setSite( SolrIndexerService.getWebAppName( ) );
         solrItem.setRole( Utilities.SHORT_ROLE_FORMS );
-        solrItem.setType( Utilities.SHORT_NAME_FORMS );
-        solrItem.setUid( nIdFormResponse + "_" + Utilities.SHORT_ROLE_FORMS );
+        solrItem.setType( FormResponse.RESOURCE_TYPE + "_" +form.getId( ) );
+        solrItem.setUid( getResourceUid(  nIdFormResponse, FormResponse.RESOURCE_TYPE) );
         solrItem.setTitle( Utilities.SHORT_ROLE_FORMS + " #" + nIdFormResponse );
         solrItem.setDate( formResponse.getCreation( ) );
         solrItem.setUrl( "jsp/site/Portal.jsp?page=formsResponse&id_response="+nIdFormResponse );

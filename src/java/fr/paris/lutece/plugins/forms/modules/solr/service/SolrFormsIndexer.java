@@ -66,6 +66,8 @@ import fr.paris.lutece.plugins.forms.service.entrytype.EntryTypeDate;
 import fr.paris.lutece.plugins.forms.service.entrytype.EntryTypeGeolocation;
 import fr.paris.lutece.plugins.forms.service.entrytype.EntryTypeNumbering;
 import fr.paris.lutece.plugins.forms.util.LuceneUtils;
+import fr.paris.lutece.plugins.genericattributes.business.Entry;
+import fr.paris.lutece.plugins.genericattributes.business.EntryHome;
 import fr.paris.lutece.plugins.genericattributes.business.FieldHome;
 import fr.paris.lutece.plugins.genericattributes.business.Response;
 import fr.paris.lutece.plugins.genericattributes.service.entrytype.EntryTypeServiceManager;
@@ -372,18 +374,21 @@ public class SolrFormsIndexer implements SolrIndexer
         IEntryTypeService typerService = null;
        for ( FormQuestionResponse formQuestionResponse : formQuestionResponseList )
         {
-            for ( Response response : formQuestionResponse.getEntryResponse( ) )
-            {
-                typerService = EntryTypeServiceManager.getEntryTypeService( response.getEntry( ) );
-                if( typerService instanceof EntryTypeGeolocation ) {
-                	
-                	addDynamicFieldGeoloc( formQuestionResponse.getEntryResponse( ), mapFileds ,solrItem,formQuestionResponse.getQuestion( ).getCode( ), setFieldNameBuilderUsed);
-                	break;
-                }
-                // add the Response Value to solrItem
-                addResponseValue( solrItem, formQuestionResponse.getQuestion( ).getCode( ), typerService, response, formResponse.getId( ),
-                        setFieldNameBuilderUsed );
-            }
+    	   if ( EntryHome.findByPrimaryKey(formQuestionResponse.getQuestion().getIdEntry( )).isPublished() )
+    	   {
+    		   for ( Response response : formQuestionResponse.getEntryResponse( ) )
+               {
+                   typerService = EntryTypeServiceManager.getEntryTypeService( response.getEntry( ) );
+                   if( typerService instanceof EntryTypeGeolocation ) {
+                   	
+                   	addDynamicFieldGeoloc( formQuestionResponse.getEntryResponse( ), mapFileds ,solrItem,formQuestionResponse.getQuestion( ).getCode( ), setFieldNameBuilderUsed);
+                   	break;
+                   }
+                   // add the Response Value to solrItem
+                   addResponseValue( solrItem, formQuestionResponse.getQuestion( ).getCode( ), typerService, response, formResponse.getId( ),
+                           setFieldNameBuilderUsed );
+               }
+    	   }
         }
         return solrItem;
     }

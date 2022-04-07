@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <plug-in>
     <name>forms-solr</name>
-    <class>fr.paris.lutece.portal.service.plugin.PluginDefaultImplementation</class>
+    <class>fr.paris.lutece.plugins.forms.modules.solr.service.FormsSolrPlugin</class>
     <version>1.0.0-SNAPSHOT</version>
     <documentation></documentation>
     <installation></installation>

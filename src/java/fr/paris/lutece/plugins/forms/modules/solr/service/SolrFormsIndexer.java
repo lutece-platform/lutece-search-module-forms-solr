@@ -100,15 +100,18 @@ public class SolrFormsIndexer implements SolrIndexer
     @Autowired( required = false )
     private IStateService _stateService;
 
+
     /**
      * Create Solr Response Form Indexer
      */
-    public SolrFormsIndexer( )
+    private SolrFormsIndexer( )
     {
-
-        LIST_RESSOURCES_NAME.add( FormResponse.RESOURCE_TYPE );
     }
-
+    
+    public static void initListResourceName( List<String> listResourceName ) 
+    {
+    	LIST_RESSOURCES_NAME.addAll( listResourceName );    	 
+    }
     /**
      * {@inheritDoc}
      */

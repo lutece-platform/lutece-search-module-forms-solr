@@ -166,7 +166,7 @@ public class SolrFormsIndexer implements SolrIndexer
     @Override
     public String getVersion( )
     {
-        return AppPropertiesService.getProperty( Utilities.PROPERTY_INDEXER_ENABLE );
+        return AppPropertiesService.getProperty( Utilities.PROPERTY_INDEXER_VERSION,"1.0.0" );
     }
 
     /**
@@ -215,7 +215,8 @@ public class SolrFormsIndexer implements SolrIndexer
         }
         SolrItem solrItem = null;
     	List<FormQuestionResponse> listFormsQuestionResponse= formResponse.getSteps( ).stream( ).flatMap( step -> step.getQuestions( ).stream( ) ).collect( Collectors.toList( ));
-        try
+    	listFormsQuestionResponse.removeIf(fqr -> !fqr.getQuestion().isPublished());
+    	try
         {
         	solrItem = getSolrItem( formResponse, form, formResponseState,
             		listFormsQuestionResponse ,
@@ -296,10 +297,14 @@ public class SolrFormsIndexer implements SolrIndexer
             listForms.forEach( form -> mapIdState.putAll( _resourceWorkflowService.getListIdStateByListId( formResponseIdList, form.getIdWorkflow( ),
                     FormResponse.RESOURCE_TYPE, form.getId( ) ) ) );
         }
-        
         List<FormQuestionResponse> listFormQuestionResponse =FormQuestionResponseHome.getFormQuestionResponseListByFormResponseList( formResponseIdList );
+       
         Set<Integer> listIdEntry =new HashSet<>();
-        listFormQuestionResponse.forEach( fqr -> fqr.getEntryResponse( ).forEach( rsp -> listIdEntry.add( rsp.getEntry().getIdEntry( ))));
+        listFormQuestionResponse.forEach( fqr -> {
+        	listIdEntry.add(fqr.getQuestion().getIdEntry( ));
+        	fqr.getEntryResponse( ).forEach( rsp -> listIdEntry.add( rsp.getEntry().getIdEntry( )));
+        
+        });
         SolrIndexerService
                 .write( getSolrItems( FormResponseHome.getFormResponseUncompleteByPrimaryKeyList( formResponseIdList ),
                 		formResponseIdList.stream( )
@@ -313,7 +318,6 @@ public class SolrFormsIndexer implements SolrIndexer
                            		.map( reponse ->  reponse.getQuestion().getId( ) )
                            		.distinct( ).collect(Collectors.toList( ))).stream().collect(Collectors.toMap( Question::getId, Function.identity( ) )),
                         FieldHome.getFieldListByListIdEntry(new ArrayList<>( listIdEntry ))
-                		.stream().collect(Collectors.groupingBy( fr.paris.lutece.plugins.genericattributes.business.Field::getIdField  ))
                 		
                 		) );
     }
@@ -331,22 +335,37 @@ public class SolrFormsIndexer implements SolrIndexer
      *            the Form Question Responses list grouping byFormResponseId: Map<FormResponseId, List<FormQuestionResponse>>
      * @param mapQuestions
      * 				the question form map
-     * @param mapFileds
-     *            the Filed list grouping by Field Id: Map<FieldId, Field>
+     * @param mapFields
+     *            the Field list grouping by Field Id: Map<FieldId, Field>
    
      * @return collection of SolrItem
      */
    
     private Collection<SolrItem> getSolrItems( List<FormResponse> listFormResponse, Map<Integer, State> mapResourceState, Map<Integer, Form> mapFom,
             Map<Integer, List<FormQuestionResponse>> mapFormQuestionResponse, Map< Integer,Question > mapQuestions, 
-            Map<Integer, List<fr.paris.lutece.plugins.genericattributes.business.Field>> mapFileds)
+            List<fr.paris.lutece.plugins.genericattributes.business.Field> listFields)
     {
         Collection<SolrItem> solrItemList = new ArrayList<>( );
         for ( FormResponse formResponse : listFormResponse )
         {
-        	List<FormQuestionResponse> formQuestionResponseList=  mapFormQuestionResponse.get( formResponse.getId( ) );
-        	formQuestionResponseList.forEach(fqr ->fqr.setQuestion(mapQuestions.get(fqr.getQuestion().getId( ))));            
-        	solrItemList.add( getSolrItem( formResponse, mapFom.get( formResponse.getFormId( ) ), mapResourceState.get( formResponse.getId( ) ), formQuestionResponseList, mapFileds ));
+        	List<FormQuestionResponse> formQuestionResponseList= new ArrayList<>() ;
+        	for( FormQuestionResponse fqr: mapFormQuestionResponse.get( formResponse.getId( ) ))
+        	{	
+	        	 fqr.setQuestion(mapQuestions.get(fqr.getQuestion().getId( )));  
+        		 listFields.forEach( field ->
+        		 {
+        			 if( field.getParentEntry().getIdEntry() == fqr.getQuestion().getIdEntry( ) && IEntryTypeService.FIELD_PUBLISHED.equals( field.getCode() ) && "true".equals( field.getValue() )) {
+        				 
+        				 formQuestionResponseList.add(fqr);
+        	        	 return; 
+        			 }
+        		 }
+        				 
+        		);  
+        	}
+        	solrItemList.add( getSolrItem( formResponse, mapFom.get( formResponse.getFormId( ) ), mapResourceState.get( formResponse.getId( ) ), formQuestionResponseList,
+        			listFields.stream().collect(Collectors.groupingBy( fr.paris.lutece.plugins.genericattributes.business.Field::getIdField  ))
+        	));
         }
         return solrItemList;
     }
@@ -362,12 +381,12 @@ public class SolrFormsIndexer implements SolrIndexer
      *            the form Response State
      * @param formQuestionResponseList
      *            the form Question Response List
-     * @param mapFileds
-     *            the Filed list grouping by Field Id: Map<FieldId, Field>
+     * @param mapFields
+     *            the Field list grouping by Field Id: Map<FieldId, Field>
      * @return the SolrItem builded
      */
     private SolrItem getSolrItem( FormResponse formResponse, Form form, State formResponseState, List<FormQuestionResponse> formQuestionResponseList, 
-    		Map<Integer, List<fr.paris.lutece.plugins.genericattributes.business.Field>> mapFileds )
+    		Map<Integer, List<fr.paris.lutece.plugins.genericattributes.business.Field>> mapFields )
     {
         SolrItem solrItem = initSolrItem( formResponse, form, formResponseState, formQuestionResponseList );
         // --- form response entry code / fields
@@ -380,7 +399,7 @@ public class SolrFormsIndexer implements SolrIndexer
                 typerService = EntryTypeServiceManager.getEntryTypeService( response.getEntry( ) );
                 if( typerService instanceof EntryTypeGeolocation ) {
                 	
-                	addDynamicFieldGeoloc( formQuestionResponse.getEntryResponse( ), mapFileds ,solrItem,formQuestionResponse.getQuestion( ).getCode( ), setFieldNameBuilderUsed);
+                	addDynamicFieldGeoloc( formQuestionResponse.getEntryResponse( ), mapFields ,solrItem,formQuestionResponse.getQuestion( ).getCode( ), setFieldNameBuilderUsed);
                 	break;
                 }
                 // add the Response Value to solrItem
@@ -570,8 +589,8 @@ public class SolrFormsIndexer implements SolrIndexer
      * 
      * @param listResponse
      * 			  the list of Response
-     * @param mapFileds
-     *            the Filed list grouping by Field Id: Map<FieldId, Field>
+     * @param mapFields
+     *            the Field list grouping by Field Id: Map<FieldId, Field>
      * @param solrItem
      * 			the solr item
      * @param codeQuestion
@@ -580,7 +599,7 @@ public class SolrFormsIndexer implements SolrIndexer
      * 			the 
      */
     private void addDynamicFieldGeoloc( List<Response> listResponse, 
-    		Map<Integer,List<fr.paris.lutece.plugins.genericattributes.business.Field>> mapFileds, 
+    		Map<Integer,List<fr.paris.lutece.plugins.genericattributes.business.Field>> mapFields, 
     		SolrItem solrItem, String codeQuestion, Set<String> setFieldNameBuilderUsed )
     {
     	double x;
@@ -594,7 +613,7 @@ public class SolrFormsIndexer implements SolrIndexer
                      setFieldNameBuilderUsed.add( fieldNameBuilder );
                     for ( Response response : mapentry.getValue() )
      		        {     		        
-     		            switch( mapFileds.get(response.getField().getIdField( )).get(0).getValue( ) )
+     		            switch( mapFields.get(response.getField().getIdField( )).get(0).getValue( ) )
      		            {
      		                case IEntryTypeService.FIELD_ADDRESS:
      		                	address= response.getResponseValue( );

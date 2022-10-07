@@ -1,12 +1,11 @@
-<?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<plug-in>
+<?xml version="1.0" encoding="UTF-8"?><plug-in>
     <name>forms-solr</name>
     <class>fr.paris.lutece.plugins.forms.modules.solr.service.FormsSolrPlugin</class>
-    <version>1.0.0-SNAPSHOT</version>
-    <documentation></documentation>
-    <installation></installation>
-    <changes></changes>
-    <user-guide></user-guide>
+    <version>1.0.0</version>
+    <documentation/>
+    <installation/>
+    <changes/>
+    <user-guide/>
     <description>module.forms.solr.module.description</description>
     <provider>module.forms.solr.module.provider</provider>
     <provider-url>https://lutece.paris.fr/lutece/</provider-url>

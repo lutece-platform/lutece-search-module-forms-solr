@@ -51,7 +51,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.solr.client.solrj.SolrServerException;
 import org.apache.solr.client.solrj.util.ClientUtils;
 import org.springframework.beans.factory.annotation.Autowired;
-
 import fr.paris.lutece.plugins.forms.business.Form;
 import fr.paris.lutece.plugins.forms.business.FormHome;
 import fr.paris.lutece.plugins.forms.business.FormQuestionResponse;
@@ -65,9 +64,13 @@ import fr.paris.lutece.plugins.forms.service.entrytype.EntryTypeCheckBox;
 import fr.paris.lutece.plugins.forms.service.entrytype.EntryTypeDate;
 import fr.paris.lutece.plugins.forms.service.entrytype.EntryTypeGeolocation;
 import fr.paris.lutece.plugins.forms.service.entrytype.EntryTypeNumbering;
+import fr.paris.lutece.plugins.forms.util.FormsResponseUtils;
 import fr.paris.lutece.plugins.forms.util.LuceneUtils;
 import fr.paris.lutece.plugins.genericattributes.business.FieldHome;
 import fr.paris.lutece.plugins.genericattributes.business.Response;
+import fr.paris.lutece.plugins.genericattributes.service.entrytype.AbstractEntryTypeFile;
+import fr.paris.lutece.plugins.genericattributes.service.entrytype.AbstractEntryTypeGalleryImage;
+import fr.paris.lutece.plugins.genericattributes.service.entrytype.AbstractEntryTypeImage;
 import fr.paris.lutece.plugins.genericattributes.service.entrytype.EntryTypeServiceManager;
 import fr.paris.lutece.plugins.genericattributes.service.entrytype.IEntryTypeService;
 import fr.paris.lutece.plugins.search.solr.business.SolrServerService;
@@ -287,9 +290,9 @@ public class SolrFormsIndexer implements SolrIndexer
     {
         Map<Integer, Integer> mapIdState = new HashMap<>( );
         // we filter the formResponse on the status to index only the published formsResponse
-    	List<FormResponse> listFormReesponse= FormResponseHome.getFormResponseUncompleteByPrimaryKeyList( formResponsesIdBatch )
+    	List<FormResponse> listFormResponse= FormResponseHome.getFormResponseUncompleteByPrimaryKeyList( formResponsesIdBatch )
   				.stream().filter(FormResponse::isPublished).collect(Collectors.toList( ));    	
-        List<Integer>  formResponseIdList= listFormReesponse.stream().map( FormResponse::getId ).collect(Collectors.toList( ));
+        List<Integer>  formResponseIdList= listFormResponse.stream().map( FormResponse::getId ).collect(Collectors.toList( ));
 
         if ( _resourceWorkflowService != null )
         {
@@ -404,7 +407,7 @@ public class SolrFormsIndexer implements SolrIndexer
                 }
                 // add the Response Value to solrItem
                 addResponseValue( solrItem, formQuestionResponse.getQuestion( ).getCode( ), typerService, response, formResponse.getId( ),
-                        setFieldNameBuilderUsed );
+                        setFieldNameBuilderUsed, formQuestionResponse.getId( ));
             }
         }
         return solrItem;
@@ -480,23 +483,22 @@ public class SolrFormsIndexer implements SolrIndexer
      * @param setFieldNameBuilderUsed
      */
     private void addResponseValue( SolrItem solrItem, String codeQuestion, IEntryTypeService entryTypeService, Response response, int formResponseId,
-            Set<String> setFieldNameBuilderUsed )
+            Set<String> setFieldNameBuilderUsed, int nIdFormQuestionResponse )
     {
 
-        if ( StringUtils.isNotEmpty( response.getResponseValue( ) ) )
-        {
+  
             StringBuilder fieldNameBuilder = new StringBuilder( LuceneUtils.createLuceneEntryKey( codeQuestion, response.getIterationNumber( ) ) );
             if ( !setFieldNameBuilderUsed.contains( fieldNameBuilder.toString( ) ) || ( entryTypeService instanceof EntryTypeCheckBox ) )
             {
                 setFieldNameBuilderUsed.add( fieldNameBuilder.toString( ) );
-                addResponseValueByType( solrItem, entryTypeService, response, fieldNameBuilder );
+                addResponseValueByType( solrItem, entryTypeService, response, fieldNameBuilder,  nIdFormQuestionResponse );
             }
             else
             {
                 AppLogService.error( " FieldNameBuilder {}  already used for formResponse.getId( )  {}  codeQuestion  {} response.getIdResponse( ) {}",
                         fieldNameBuilder.toString( ), formResponseId, codeQuestion, response.getIdResponse( ) );
             }
-        }
+        
     }
 
     /**
@@ -511,7 +513,7 @@ public class SolrFormsIndexer implements SolrIndexer
      * @param fieldNameBuilder
      *            the field Name
      */
-    private void addResponseValueByType( SolrItem solrItem, IEntryTypeService entryTypeService, Response response, StringBuilder fieldNameBuilder )
+    private void addResponseValueByType( SolrItem solrItem, IEntryTypeService entryTypeService, Response response, StringBuilder fieldNameBuilder, int nIdFormQuestionResponse )
     {
 
         if ( entryTypeService instanceof EntryTypeDate )
@@ -520,38 +522,58 @@ public class SolrFormsIndexer implements SolrIndexer
             solrItem.addDynamicField( fieldNameBuilder.toString( ) + FormResponseSearchItem.FIELD_DATE_SUFFIX, Long.valueOf( response.getResponseValue( ) ) );
 
         }
-        else
-            if ( entryTypeService instanceof EntryTypeNumbering )
-            {
+        else if ( entryTypeService instanceof EntryTypeNumbering )
+        {
 
                 solrItem.addDynamicField( fieldNameBuilder.append( FormResponseSearchItem.FIELD_INT_SUFFIX ).toString( ),
                         Long.parseLong( response.getResponseValue( ) ) );
 
-            }
-            else
-                if ( entryTypeService instanceof EntryTypeGeolocation )
-                {
-                    // The built of the address is to be tested...!!!
-                    solrItem.addDynamicFieldGeoloc( fieldNameBuilder.toString( ), response.getResponseValue( ), fieldNameBuilder.toString( ) );
+         }
+         else if ( entryTypeService instanceof EntryTypeGeolocation )
+         {
+               // The built of the address is to be tested...!!!
+                solrItem.addDynamicFieldGeoloc( fieldNameBuilder.toString( ), response.getResponseValue( ), fieldNameBuilder.toString( ) );
 
-                }else if ( entryTypeService instanceof EntryTypeCheckBox  ) {
+         }else if ( entryTypeService instanceof EntryTypeCheckBox  ) {
                 	
-                	List<String> dfListBox= (List<String>) solrItem.getDynamicFields().get( fieldNameBuilder.toString( ) + SolrItem.DYNAMIC_LIST_FIELD_SUFFIX );
+                  List<String> dfListBox= (List<String>) solrItem.getDynamicFields().get( fieldNameBuilder.toString( ) + SolrItem.DYNAMIC_LIST_FIELD_SUFFIX );
                 	
                 	if( dfListBox != null ) 
                 	{
                 		dfListBox.add( response.getResponseValue( ) );
-                	}else
+                	}
+                	else
                 	{
                 		
                 		dfListBox= new ArrayList< >( Arrays.asList( response.getResponseValue( )));
                 	}
                 	solrItem.addDynamicField( fieldNameBuilder.toString( ), dfListBox);
-                }
-                else
+                	
+         } 
+         else if ( ( entryTypeService instanceof AbstractEntryTypeFile || entryTypeService instanceof AbstractEntryTypeImage 
+                || entryTypeService instanceof AbstractEntryTypeGalleryImage ) )
                 {
-                    solrItem.addDynamicField( fieldNameBuilder.toString( ), response.getResponseValue( ) );
+                	List<String> dfListUrlFile= (List<String>) solrItem.getDynamicFields().get( fieldNameBuilder.toString( ) + SolrItem.DYNAMIC_LIST_FIELD_SUFFIX );
+
+                	if( dfListUrlFile != null ) 
+                	{
+                		dfListUrlFile.add( response.getResponseValue( ) );
+                		
+                		if( response.getFile() != null) {
+                			dfListUrlFile.add( FormsResponseUtils.buildFileUrl(nIdFormQuestionResponse, response.getFile().getIdFile( )));
+                		}
+                	}
+                	else
+                	{
+                		
+                		dfListUrlFile= new ArrayList< >( Arrays.asList( FormsResponseUtils.buildFileUrl(nIdFormQuestionResponse, (response.getFile()!= null )?response.getFile().getIdFile( ):-1)));
+                	}
+                	solrItem.addDynamicField( fieldNameBuilder.toString( ), dfListUrlFile);
                 }
+          else
+          {
+                    solrItem.addDynamicField( fieldNameBuilder.toString( ), response.getResponseValue( ) );
+          }
     }
 
     /**
@@ -645,5 +667,4 @@ public class SolrFormsIndexer implements SolrIndexer
         }
          
        }
-
 }

@@ -60,6 +60,7 @@ import fr.paris.lutece.plugins.forms.business.FormResponseHome;
 import fr.paris.lutece.plugins.forms.business.Question;
 import fr.paris.lutece.plugins.forms.business.QuestionHome;
 import fr.paris.lutece.plugins.forms.business.form.search.FormResponseSearchItem;
+import fr.paris.lutece.plugins.forms.service.entrytype.EntryTypeCartography;
 import fr.paris.lutece.plugins.forms.service.entrytype.EntryTypeCheckBox;
 import fr.paris.lutece.plugins.forms.service.entrytype.EntryTypeDate;
 import fr.paris.lutece.plugins.forms.service.entrytype.EntryTypeGeolocation;
@@ -405,6 +406,11 @@ public class SolrFormsIndexer implements SolrIndexer
                 	addDynamicFieldGeoloc( formQuestionResponse.getEntryResponse( ), mapFields ,solrItem,formQuestionResponse.getQuestion( ).getCode( ), setFieldNameBuilderUsed);
                 	break;
                 }
+                if( typerService instanceof EntryTypeCartography ) {
+                	
+                	addDynamicFieldCartography( formQuestionResponse.getEntryResponse( ), mapFields ,solrItem,formQuestionResponse.getQuestion( ).getCode( ), setFieldNameBuilderUsed);
+                	break;
+                }
                 // add the Response Value to solrItem
                 addResponseValue( solrItem, formQuestionResponse.getQuestion( ).getCode( ), typerService, response, formResponse.getId( ),
                         setFieldNameBuilderUsed, formQuestionResponse.getId( ));
@@ -656,6 +662,62 @@ public class SolrFormsIndexer implements SolrIndexer
      		        if( address != null && x != 0 && y != 0 ) {
      		        	
      		        	solrItem.addDynamicFieldGeoloc( fieldNameBuilder , address, x, y, FormResponse.RESOURCE_TYPE);
+     		        }
+                 
+                 }
+                 else
+                 {
+                     AppLogService.error( " FieldNameBuilder {}  already used for  {}  codeQuestion  {} ",
+                             fieldNameBuilder, codeQuestion );
+                 }
+        }
+         
+       }
+    
+    /**
+     * 
+     * @param listResponse
+     * 			  the list of Response
+     * @param mapFields
+     *            the Field list grouping by Field Id: Map<FieldId, Field>
+     * @param solrItem
+     * 			the solr item
+     * @param codeQuestion
+     * 			the question code
+     * @param setFieldNameBuilderUsed
+     * 			the 
+     */
+    private void addDynamicFieldCartography( List<Response> listResponse, 
+    		Map<Integer,List<fr.paris.lutece.plugins.genericattributes.business.Field>> mapFields, 
+    		SolrItem solrItem, String codeQuestion, Set<String> setFieldNameBuilderUsed )
+    {
+    	String geojson;
+    	String idlayer;
+        for (Map.Entry<Integer, List<Response>> mapentry : listResponse.stream().collect(Collectors.groupingBy( Response::getIterationNumber )).entrySet()) {
+       	 		geojson=null; idlayer=null;
+        		String fieldNameBuilder =  LuceneUtils.createLuceneEntryKey( codeQuestion,  mapentry.getKey( ) ) ;
+        		if ( !setFieldNameBuilderUsed.contains( fieldNameBuilder ) )
+                {
+                     setFieldNameBuilderUsed.add( fieldNameBuilder );
+                    for ( Response response : mapentry.getValue() )
+     		        {     		        
+     		            switch( mapFields.get(response.getField().getIdField( )).get(0).getValue( ) )
+     		            {
+     		                case IEntryTypeService.FIELD_GEOJSON:
+     		                	geojson= response.getResponseValue( );
+     		                    break;
+     		
+     		                case IEntryTypeService.FIELD_ID_LAYER:
+     		                    idlayer= response.getResponseValue( );
+     		                    break;
+     		               default:
+     		     		         
+    		                	break;
+     		            }
+     		        }
+     		        if( geojson != null && idlayer != null ) {
+     		        	solrItem.addDynamicFieldGeoloc(fieldNameBuilder, geojson, FormResponse.RESOURCE_TYPE);
+     		        	solrItem.addDynamicField("DataLayer", idlayer );
      		        }
                  
                  }

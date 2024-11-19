@@ -225,7 +225,7 @@ public class SolrFormsIndexer implements SolrIndexer
         	solrItem = getSolrItem( formResponse, form, formResponseState,
             		listFormsQuestionResponse ,
         		    listFormsQuestionResponse.stream( ).filter(fqr -> fqr.getQuestion().getEntry()!= null && fqr.getQuestion().getEntry().getFields( ) != null ).flatMap(fqr -> fqr.getQuestion().getEntry().getFields( ).stream( ))
-        		    .collect(Collectors.groupingBy( fr.paris.lutece.plugins.genericattributes.business.Field::getIdField ))
+        		    .collect(Collectors.groupingBy( fr.paris.lutece.plugins.genericattributes.business.Field::getIdField )), formResponse.getRole(), formResponse.getGuid()
             );
         }
         catch( Exception e )
@@ -368,7 +368,7 @@ public class SolrFormsIndexer implements SolrIndexer
         		);  
         	}
         	solrItemList.add( getSolrItem( formResponse, mapFom.get( formResponse.getFormId( ) ), mapResourceState.get( formResponse.getId( ) ), formQuestionResponseList,
-        			listFields.stream().collect(Collectors.groupingBy( fr.paris.lutece.plugins.genericattributes.business.Field::getIdField  ))
+        			listFields.stream().collect(Collectors.groupingBy( fr.paris.lutece.plugins.genericattributes.business.Field::getIdField  ) ), formResponse.getRole( ), formResponse.getGuid( )
         	));
         }
         return solrItemList;
@@ -387,10 +387,14 @@ public class SolrFormsIndexer implements SolrIndexer
      *            the form Question Response List
      * @param mapFields
      *            the Field list grouping by Field Id: Map<FieldId, Field>
+     * @param strRole
+     * 			the role of the user
+     * @param strGuid
+     * 			the guid of the user
      * @return the SolrItem builded
      */
     private SolrItem getSolrItem( FormResponse formResponse, Form form, State formResponseState, List<FormQuestionResponse> formQuestionResponseList, 
-    		Map<Integer, List<fr.paris.lutece.plugins.genericattributes.business.Field>> mapFields )
+    		Map<Integer, List<fr.paris.lutece.plugins.genericattributes.business.Field>> mapFields, String strRole, String strGuid )
     {
         SolrItem solrItem = initSolrItem( formResponse, form, formResponseState, formQuestionResponseList );
         // --- form response entry code / fields
@@ -408,7 +412,7 @@ public class SolrFormsIndexer implements SolrIndexer
                 }
                 if( typerService instanceof EntryTypeCartography ) {
                 	
-                	addDynamicFieldCartography( formQuestionResponse.getEntryResponse( ), mapFields ,solrItem,formQuestionResponse.getQuestion( ).getCode( ), setFieldNameBuilderUsed);
+                	addDynamicFieldCartography( formQuestionResponse.getEntryResponse( ), mapFields ,solrItem,formQuestionResponse.getQuestion( ).getCode( ), setFieldNameBuilderUsed, strRole, strGuid);
                 	break;
                 }
                 // add the Response Value to solrItem
@@ -686,10 +690,14 @@ public class SolrFormsIndexer implements SolrIndexer
      * 			the question code
      * @param setFieldNameBuilderUsed
      * 			the 
+     * @param strRole
+     * 			the role of the user
+     * @param strGuid
+     * 			the guid of the user
      */
     private void addDynamicFieldCartography( List<Response> listResponse, 
     		Map<Integer,List<fr.paris.lutece.plugins.genericattributes.business.Field>> mapFields, 
-    		SolrItem solrItem, String codeQuestion, Set<String> setFieldNameBuilderUsed )
+    		SolrItem solrItem, String codeQuestion, Set<String> setFieldNameBuilderUsed, String strRole, String strGuid )
     {
     	String geojson;
     	String idlayer;
@@ -717,7 +725,9 @@ public class SolrFormsIndexer implements SolrIndexer
      		        }
      		        if( geojson != null && idlayer != null ) {
      		        	solrItem.addDynamicFieldGeoloc(fieldNameBuilder, geojson, FormResponse.RESOURCE_TYPE);
-     		        	solrItem.addDynamicField("DataLayer", idlayer );
+     		        	solrItem.addDynamicField( FormResponseSearchItem.FIELD_DATA_LAYER, idlayer );
+     		        	solrItem.addDynamicField( FormResponseSearchItem.FIELD_ROLE_USER, strRole );
+     		        	solrItem.addDynamicField( FormResponseSearchItem.FIELD_GUID, strGuid );
      		        }
                  
                  }

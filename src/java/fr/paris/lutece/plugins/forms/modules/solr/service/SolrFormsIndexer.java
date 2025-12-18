@@ -50,7 +50,6 @@ import java.util.stream.IntStream;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.solr.client.solrj.SolrServerException;
 import org.apache.solr.client.solrj.util.ClientUtils;
-import org.springframework.beans.factory.annotation.Autowired;
 import fr.paris.lutece.plugins.forms.business.Form;
 import fr.paris.lutece.plugins.forms.business.FormHome;
 import fr.paris.lutece.plugins.forms.business.FormQuestionResponse;
@@ -88,22 +87,25 @@ import fr.paris.lutece.plugins.workflowcore.service.state.IStateService;
 import fr.paris.lutece.portal.service.search.SearchItem;
 import fr.paris.lutece.portal.service.util.AppLogService;
 import fr.paris.lutece.portal.service.util.AppPropertiesService;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
+import jakarta.inject.Inject;
 
 /**
  * The Solr Response Forms indexer service for Solr.
  *
  */
+@ApplicationScoped
 public class SolrFormsIndexer implements SolrIndexer
 {
     private static final int TAILLE_LOT = AppPropertiesService.getPropertyInt( Utilities.PROPERTY_BATCH, 100 );
     private static final List<String> LIST_RESSOURCES_NAME = new ArrayList<>( );
 
-    @Autowired( required = false )
-    private IResourceWorkflowService _resourceWorkflowService;
+    @Inject
+    private Instance<IResourceWorkflowService> _resourceWorkflowServiceInstance;
 
-    @Autowired( required = false )
-    private IStateService _stateService;
-
+    @Inject
+    private Instance<IStateService> _stateServiceInstance;
 
     /**
      * Create Solr Response Form Indexer
@@ -207,9 +209,9 @@ public class SolrFormsIndexer implements SolrIndexer
         
         Form form = FormHome.findByPrimaryKey( formResponse.getFormId( ) );
         State formResponseState = null;
-        if ( _stateService != null )
+        if ( _stateServiceInstance != null && _stateServiceInstance.isResolvable( ) )
         {
-            formResponseState = _stateService.findByResource( formResponse.getId( ), FormResponse.RESOURCE_TYPE, form.getIdWorkflow( ) );
+            formResponseState = _stateServiceInstance.get( ).findByResource( formResponse.getId( ), FormResponse.RESOURCE_TYPE, form.getIdWorkflow( ) );
         }
         else
         {
@@ -245,7 +247,7 @@ public class SolrFormsIndexer implements SolrIndexer
     {
         List<String> errors = new ArrayList<>( );
         final List<Integer> listFormResponsesId = FormResponseHome.selectAllFormResponsesId( );
-        final List<State> listState = ( _stateService != null && _resourceWorkflowService != null ) ? _stateService.getListStateByFilter( new StateFilter( ) )
+        final List<State> listState = ( _stateServiceInstance != null && _stateServiceInstance.isResolvable( ) && _resourceWorkflowServiceInstance != null ) ? _stateServiceInstance.get( ).getListStateByFilter( new StateFilter( ) )
                 : new ArrayList<>( );
         State defaultFormResponseState = new State( );
         defaultFormResponseState.setId( -1 );
@@ -295,10 +297,10 @@ public class SolrFormsIndexer implements SolrIndexer
   				.stream().filter(FormResponse::isPublished).collect(Collectors.toList( ));    	
         List<Integer>  formResponseIdList= listFormResponse.stream().map( FormResponse::getId ).collect(Collectors.toList( ));
 
-        if ( _resourceWorkflowService != null )
+        if ( _resourceWorkflowServiceInstance != null && _resourceWorkflowServiceInstance.isResolvable( ) )
         {
 
-            listForms.forEach( form -> mapIdState.putAll( _resourceWorkflowService.getListIdStateByListId( formResponseIdList, form.getIdWorkflow( ),
+            listForms.forEach( form -> mapIdState.putAll( _resourceWorkflowServiceInstance.get( ).getListIdStateByListId( formResponseIdList, form.getIdWorkflow( ),
                     FormResponse.RESOURCE_TYPE, form.getId( ) ) ) );
         }
         List<FormQuestionResponse> listFormQuestionResponse =FormQuestionResponseHome.getFormQuestionResponseListByFormResponseList( formResponseIdList );
@@ -671,7 +673,7 @@ public class SolrFormsIndexer implements SolrIndexer
                  }
                  else
                  {
-                     AppLogService.error( " FieldNameBuilder {}  already used for  {}  codeQuestion  {} ",
+                     AppLogService.error( " FieldNameBuilder {} already used for codeQuestion {} ",
                              fieldNameBuilder, codeQuestion );
                  }
         }
@@ -733,7 +735,7 @@ public class SolrFormsIndexer implements SolrIndexer
                  }
                  else
                  {
-                     AppLogService.error( " FieldNameBuilder {}  already used for  {}  codeQuestion  {} ",
+                     AppLogService.error( " FieldNameBuilder {} already used for codeQuestion {} ",
                              fieldNameBuilder, codeQuestion );
                  }
         }
